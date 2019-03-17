@@ -46,7 +46,6 @@ void workspace_add_window(workspace_t *ws, window_t *win){
         window_ref_down(win);
         return;
     }
-    // TODO: do more? Like set it into the workspace's active frame?
 }
 
 // unmap all windows in workspace
@@ -63,6 +62,8 @@ void workspace_restore(workspace_t *ws){
         split_free(ws->roots[ws->nroots - 1]);
         ws->nroots--;
     }
+    // when we are quitting, stop here when there are no screens left
+    if(!g_nscreens) return;
     // too few roots?
     while(ws->nroots < g_nscreens){
         split_t *newroot = split_new(NULL);
@@ -77,4 +78,7 @@ void workspace_restore(workspace_t *ws){
     for(size_t i = 0; i < ws->nroots; i++){
         split_restore(ws->roots[i], g_screens[i]);
     }
+    // TODO: don't reset the focus frame all the time
+    ws->focus = ws->roots[0];
+    while(!ws->focus->isleaf) ws->focus = ws->focus->frames[0];
 }

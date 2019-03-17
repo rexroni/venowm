@@ -15,6 +15,7 @@ split_t *split_new(split_t *parent){
     out->frames[1] = NULL;
     out->isleaf = true;
     out->window = NULL;
+    out->screen = parent ? parent->screen : NULL;
     return out;
 }
 
@@ -44,6 +45,21 @@ int do_split(split_t *split, bool vertical, float fraction){
     split->fraction = fraction;
     split->isvertical = vertical;
     split->isleaf = false;
+    // if this has a window, pass it to a child
+    if(split->window){
+        // remap valid windows
+        if(split->window->isvalid)
+            split_map_window(split->frames[0], split->window);
+        // then forget windows in this frame
+        window_ref_down(split->window);
+        split->window = NULL;
+    }
+    // if this was the focus, pass focus to child
+    if(g_workspace->focus == split){
+        g_workspace->focus = split->frames[0];
+        // no need to give focus to window, we didn't take it away
+    }
+    // TODO: map unmapped windows in the workspace to the new frame
     return 0;
 }
 
@@ -82,6 +98,7 @@ sides_t get_sides(split_t *split){
 
 static void do_show_window(window_t *window, screen_t *screen,
                            float t, float b, float l, float r){
+    // make window visible
     swc_window_show(window->swc_window);
     // pull out screen geometry
     int32_t x = screen->swc_screen->usable_geometry.x;
@@ -103,6 +120,8 @@ static void do_show_window(window_t *window, screen_t *screen,
 
 static void do_split_restore(split_t *split, screen_t *screen,
                              float t, float b, float l, float r){
+    // cache this screen pointer
+    split->screen = screen;
     if(split->isleaf){
         if(split->window){
             // check validity of window
@@ -134,8 +153,8 @@ void split_restore(split_t *split, screen_t *screen){
     do_split_restore(split, screen, 0.0, 1.0, 0.0, 1.0);
 }
 
-// call window_map on a single frame, *split must not be a leaf
-void split_map_window(split_t *split, screen_t *screen, window_t *window){
+// call window_map on a single frame, *split must be a leaf
+void split_map_window(split_t *split, window_t *window){
     if(!split->isleaf){
         logmsg("whoa there, you can't stick that window there!\n");
     }
@@ -155,6 +174,64 @@ void split_map_window(split_t *split, screen_t *screen, window_t *window){
     // get the geometry of the window
     sides_t sides = get_sides(split);
     float t = sides.t, b = sides.b, l = sides.l, r = sides.r;
-    do_show_window(window, screen, t, b, l, r);
+    do_show_window(window, split->screen, t, b, l, r);
 }
 
+split_t *do_split_move(split_t *start, bool vertical, bool increasing){
+    /* pos is the centerpoint of the starting frame on the border-to-cross
+       relative to our current position */
+    float pos = 0.5;
+    // go up the tree until we find the split we want to cross
+    split_t *here = start;
+    while(true){
+        split_t *parent = here->parent;
+        if(!parent){
+            // found root split
+            // TODO: handle multiple screens
+            return NULL;
+        }
+        bool first_child = (parent->frames[0] == here);
+        if(parent->isvertical != vertical){
+            // split is the wrong way, recalculate pos
+            if(first_child){
+                pos *= parent->fraction;
+            }else{
+                pos = parent->fraction + (1-parent->fraction)*pos;
+            }
+        }else if(first_child == increasing){
+            // we found the split we need to cross
+            here = here->parent;
+            break;
+        }else{
+            // split is the right way, but we are on the wrong side of it
+            // (continue up tree, nothing to do here)
+        }
+        here = here->parent;
+    }
+    /* now *here points to the parent of the split we want to cross.  First,
+       just cross that split. */
+    here = here->frames[increasing];
+
+    // Now descend to the appropriate leaf.
+    while(!here->isleaf){
+        if(here->isvertical == vertical){
+            // easy case, no need to recalculate pos
+            // if we are increasing, take the first child
+            // (if we are going *right*, take the *left* child)
+            // ((damn this is confusing))
+            here = here->frames[increasing == 0];
+        }else{
+            if(pos < here->fraction){
+                // take the first child
+                pos = pos / here->fraction;
+                here = here->frames[0];
+            }else{
+                // take the second child
+                pos = (pos - here->fraction) / (1 - here->fraction);
+                here = here->frames[1];
+            }
+        }
+    }
+    // done! *here points to where we want to be
+    return here;
+}

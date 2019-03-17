@@ -13,6 +13,7 @@ static screen_t *screen_new(void){
 }
 
 void handle_screen_destroy(void *data){
+    logmsg("destroy screen\n");
     // dereference data
     screen_t *screen = data;
     // remove the screen from the g_screens
@@ -43,6 +44,7 @@ static struct swc_screen_handler screen_handler = {
 };
 
 void handle_new_screen(struct swc_screen *swc_screen){
+    logmsg("new screen\n");
     screen_t *screen = screen_new();
     if(screen == NULL){
         logmsg("stderr: unable to alloc screen!\n");

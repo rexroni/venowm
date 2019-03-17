@@ -37,10 +37,26 @@ static inline int hsplit(split_t *split, float fraction){
     return do_split(split, false, fraction);
 }
 
-// call window_map on all frames, *split must be a root
+// call window_map on all frames's windows, *split must be a root
 void split_restore(split_t *split, screen_t *screen);
 
-// call window_map on a single frame, *split must not be a leaf
-void split_map_window(split_t *split, screen_t *screen, window_t *window);
+// call window_map on a single frame, *split must be a leaf
+void split_map_window(split_t *split, window_t *window);
+
+// returns NULL if no move is possible (such as an edge)
+split_t *do_split_move(split_t *start, bool vertical, bool increasing);
+
+static inline split_t *split_move_right(split_t *start){
+    return do_split_move(start, false, true);
+}
+static inline split_t *split_move_left(split_t *start){
+    return do_split_move(start, false, false);
+}
+static inline split_t *split_move_up(split_t *start){
+    return do_split_move(start, true, false);
+}
+static inline split_t *split_move_down(split_t *start){
+    return do_split_move(start, true, true);
+}
 
 #endif // SPLIT_H

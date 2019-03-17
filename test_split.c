@@ -6,8 +6,15 @@
 #define WIDTH 80
 #define HEIGHT 40
 
-// this is just for the compiler
-workspace_t *g_workspace;
+// these are just for the compiler
+workspace_t *g_workspace = &(workspace_t){0};
+screen_t **g_screens;
+size_t g_screens_size;
+size_t g_nscreens;
+workspace_t **g_workspaces;
+size_t g_workspaces_size;
+size_t g_nworkspaces;
+//
 
 void draw_split(char grid[HEIGHT][WIDTH+1], split_t *split,
                 float t, float b, float l, float r){
@@ -28,6 +35,18 @@ void draw_split(char grid[HEIGHT][WIDTH+1], split_t *split,
         }
         draw_split(grid, split->frames[0], t, b, l, line);
         draw_split(grid, split->frames[1], t, b, line, r);
+    }
+}
+
+void draw_highlight(char grid[HEIGHT][WIDTH+1], split_t *highlight, char c){
+    if(!highlight) return;
+    sides_t sides = get_sides(highlight);
+    for(int row = frac_of(sides.t, HEIGHT) + 1;
+            row < frac_of(sides.b, HEIGHT); row ++){
+        for(int col = frac_of(sides.l, WIDTH) + 1;
+                col < frac_of(sides.r, WIDTH); col ++){
+            grid[row][col] = c;
+        }
     }
 }
 
@@ -60,16 +79,37 @@ void draw_layout(split_t *root, split_t *highlight){
     draw_split(grid, root, 0.0, 1.0, 0.0, 1.0);
 
     // highlight the special one
-    if(highlight){
-        sides_t sides = get_sides(highlight);
-        for(int row = frac_of(sides.t, HEIGHT) + 1;
-                row < frac_of(sides.b, HEIGHT); row ++){
-            for(int col = frac_of(sides.l, WIDTH) + 1;
-                    col < frac_of(sides.r, WIDTH); col ++){
-                grid[row][col] = '*';
-            }
-        }
-    }
+    draw_highlight(grid, highlight, '0');
+
+    highlight = split_move_right(highlight);
+    draw_highlight(grid, highlight, '1');
+
+    highlight = split_move_down(highlight);
+    draw_highlight(grid, highlight, '2');
+
+    highlight = split_move_up(highlight);
+    draw_highlight(grid, highlight, '3');
+
+    highlight = split_move_up(highlight);
+    draw_highlight(grid, highlight, '4');
+
+    highlight = split_move_right(highlight);
+    draw_highlight(grid, highlight, '5');
+
+    highlight = split_move_up(highlight);
+    draw_highlight(grid, highlight, '6');
+
+    highlight = split_move_left(highlight);
+    draw_highlight(grid, highlight, '7');
+
+    highlight = split_move_right(highlight);
+    draw_highlight(grid, highlight, '8');
+
+    highlight = split_move_right(highlight);
+    draw_highlight(grid, highlight, '9');
+
+    highlight = split_move_left(highlight);
+    draw_highlight(grid, highlight, '*');
 
     // clear screen
     write(1, "\x1b[2J", 4);
@@ -83,23 +123,22 @@ int main(){
     if(!root) return 1;
     if(hsplit(root, .5)) goto fail;
     split_t *sptr = root->frames[0];
-    if(vsplit(sptr, .5)) goto fail;
+    if(vsplit(sptr, .6)) goto fail;
     sptr = sptr->frames[0];
     if(hsplit(sptr, .5)) goto fail;
     sptr = sptr->frames[1];
-    if(vsplit(sptr, .5)) goto fail;
+    if(vsplit(sptr, .6)) goto fail;
     sptr = sptr->frames[1];
     if(hsplit(sptr, .5)) goto fail;
     sptr = sptr->frames[0];
     if(vsplit(sptr, .5)) goto fail;
     sptr = sptr->frames[0];
-    if(hsplit(sptr, .5)) goto fail;
+    if(hsplit(sptr, .6)) goto fail;
     sptr = sptr->frames[1];
-    if(vsplit(sptr, .5)) goto fail;
+    if(vsplit(sptr, .6)) goto fail;
     sptr = sptr->frames[1];
 
     highlight = sptr;
-
 
     draw_layout(root, highlight);
     split_free(root);

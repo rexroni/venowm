@@ -9,6 +9,11 @@
 // the main data types.  Some are interdependent.
 
 typedef struct {
+    struct swc_screen *swc_screen;
+    // more data to come at a later time
+} screen_t;
+
+typedef struct {
     int refs; // how many workspaces is this window in?
     struct swc_window *swc_window;
     // windows may close or die while there are still open refs to this struct
@@ -22,6 +27,7 @@ typedef struct split_t {
     float fraction;
     struct split_t *parent;
     struct split_t *frames[2];
+    screen_t *screen; // not used internally to split.c
 } split_t;
 
 typedef struct {
@@ -32,12 +38,9 @@ typedef struct {
     split_t **roots;
     size_t roots_size;
     size_t nroots;
+    // the focused frame, should always be a leaf
+    split_t *focus;
 } workspace_t;
-
-typedef struct {
-    struct swc_screen *swc_screen;
-    // more data to come at a later time
-} screen_t;
 
 // global variables
 
