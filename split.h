@@ -5,6 +5,9 @@
 
 #include "venowm.h"
 
+// forget closed windows.  Use this before dereferencing split->window.
+void split_check_window(split_t *split);
+
 // takes a size S and returns within [0,(S-1)]
 static inline int frac_of(float f, int size){
     return (int)roundf(f * (size-1));

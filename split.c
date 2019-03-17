@@ -5,6 +5,16 @@
 #include "split.h"
 #include "window.h"
 
+// a getter, which triggers the validity check on the window
+void split_check_window(split_t *split){
+    if(!split->window) return;
+    if(!split->window->isvalid){
+        // forget this window
+        window_ref_down(split->window);
+        split->window = NULL;
+    }
+}
+
 split_t *split_new(split_t *parent){
     split_t *out = malloc(sizeof(*out));
     if(!out) return NULL;
@@ -22,9 +32,11 @@ split_t *split_new(split_t *parent){
 // frees all the split_t objects and unmaps/downrefs all windows
 void split_free(split_t *split){
     if(!split) return;
+    split_check_window(split);
     if(split->window){
-        swc_window_hide(split->window->swc_window);
         window_ref_down(split->window);
+        swc_window_hide(split->window->swc_window);
+        // TODO add window to workspace's hidden window list
     }
     split_free(split->frames[0]);
     split_free(split->frames[1]);
@@ -46,11 +58,11 @@ int do_split(split_t *split, bool vertical, float fraction){
     split->isvertical = vertical;
     split->isleaf = false;
     // if this has a window, pass it to a child
+    split_check_window(split);
     if(split->window){
         // remap valid windows
-        if(split->window->isvalid)
-            split_map_window(split->frames[0], split->window);
-        // then forget windows in this frame
+        split_map_window(split->frames[0], split->window);
+        // forget the reference here
         window_ref_down(split->window);
         split->window = NULL;
     }
@@ -113,6 +125,7 @@ static void do_show_window(window_t *window, screen_t *screen,
     int32_t ymax = y + frac_of(b, (int)h);
     uint32_t wout = xmax - xmin;
     uint32_t hout = ymax - ymin;
+    logmsg("do_show_window: x:%d y:%d h:%u w:%u\n", xmin, ymin, hout, wout);
     // set window geometry
     swc_window_set_position(window->swc_window, xmin, ymin);
     swc_window_set_size(window->swc_window, wout, hout);
@@ -123,15 +136,8 @@ static void do_split_restore(split_t *split, screen_t *screen,
     // cache this screen pointer
     split->screen = screen;
     if(split->isleaf){
-        if(split->window){
-            // check validity of window
-            if(!split->window->isvalid){
-                window_ref_down(split->window);
-                split->window = NULL;
-            }else{
-                do_show_window(split->window, screen, t, b, l, r);
-            }
-        }
+        split_check_window(split);
+        if(split->window) do_show_window(split->window, screen, t, b, l, r);
         return;
     }
     if(split->isvertical){
@@ -148,7 +154,7 @@ static void do_split_restore(split_t *split, screen_t *screen,
 // call window_map on all frames, *split must be a root
 void split_restore(split_t *split, screen_t *screen){
     if(split->parent){
-        logmsg("whoa there, you can't restore that split!\n");
+        logmsg("whoa there, you can't restore that non-root split!\n");
     }
     do_split_restore(split, screen, 0.0, 1.0, 0.0, 1.0);
 }
@@ -164,7 +170,10 @@ void split_map_window(split_t *split, window_t *window){
         return;
     }
     // are we unmapping a window already in that split?
+    split_check_window(split);
     if(split->window){
+        swc_window_hide(split->window->swc_window);
+        // TODO add window to workspace's hidden window list
         window_ref_down(split->window);
         split->window = NULL;
     }
@@ -175,6 +184,8 @@ void split_map_window(split_t *split, window_t *window){
     sides_t sides = get_sides(split);
     float t = sides.t, b = sides.b, l = sides.l, r = sides.r;
     do_show_window(window, split->screen, t, b, l, r);
+    // DEBUG: get root and rerender everything
+
 }
 
 split_t *do_split_move(split_t *start, bool vertical, bool increasing){
@@ -221,7 +232,8 @@ split_t *do_split_move(split_t *start, bool vertical, bool increasing){
             // ((damn this is confusing))
             here = here->frames[increasing == 0];
         }else{
-            if(pos < here->fraction){
+            // ties go to first child
+            if(pos <= here->fraction){
                 // take the first child
                 pos = pos / here->fraction;
                 here = here->frames[0];

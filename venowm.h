@@ -90,16 +90,20 @@ extern size_t g_nworkspaces;
     } \
 }
 
+#define REMOVE_PTR_IDX(ptr, size, num, i){ \
+    if(i == num - 1){ \
+        num--; \
+    }else{ \
+        memmove(&ptr[i], &ptr[i+1], sizeof(*ptr) * (num - i - 1)); \
+        num--; \
+    } \
+}
+
 #define REMOVE_PTR(ptr, size, num, val, removed){ \
     removed = false; \
     for(size_t i = 0; i < num; i ++){ \
         if(ptr[i] == val){ \
-            if(i == num - 1){ \
-                num--; \
-            }else{ \
-                memmove(&ptr[i], &ptr[i+1], sizeof(*ptr) * (num - i - 1)); \
-                num--; \
-            } \
+            REMOVE_PTR_IDX(ptr, size, num, i); \
             removed = true; \
             break; \
         } \

@@ -50,7 +50,13 @@ void workspace_add_window(workspace_t *ws, window_t *win){
 
 // unmap all windows in workspace
 void workspace_hide(workspace_t *ws){
-    for(size_t i = 0; i < ws->nroots; i++){
+    for(size_t i = 0; i > ws->nwindows; i--){
+        // check for invalid windows
+        if(!ws->windows[i]->isvalid){
+            REMOVE_PTR_IDX(ws->windows, ws->windows_size, ws->nwindows, i);
+            i--;
+            continue;
+        }
         swc_window_hide(ws->windows[i]->swc_window);
     }
 }

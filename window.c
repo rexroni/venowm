@@ -48,6 +48,7 @@ void handle_new_window(struct swc_window *swc_window){
     workspace_add_window(g_workspace, window);
     // set some defaults
     swc_window_set_border(window->swc_window, 0, 0);
+    swc_window_set_tiled(window->swc_window);
     // give the window focus
     swc_window_focus(window->swc_window);
     // map the window to the current frame

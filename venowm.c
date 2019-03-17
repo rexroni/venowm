@@ -69,6 +69,83 @@ static void exec_vimb(void *data, uint32_t time, uint32_t value, uint32_t state)
     exec("env GDK_BACKEND=wayland vimb");
 }
 
+static void dohsplit(void *data, uint32_t time, uint32_t value, uint32_t state){
+    (void)data;
+    (void)time;
+    (void)value;
+    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    hsplit(g_workspace->focus, 0.5);
+}
+
+static void dovsplit(void *data, uint32_t time, uint32_t value, uint32_t state){
+    (void)data;
+    (void)time;
+    (void)value;
+    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    vsplit(g_workspace->focus, 0.5);
+}
+
+static void goleft(void *data, uint32_t time, uint32_t value, uint32_t state){
+    (void)data;
+    (void)time;
+    (void)value;
+    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    split_t *temp = split_move_left(g_workspace->focus);
+    if(temp){
+        g_workspace->focus = temp;
+        split_check_window(temp);
+        if(temp->window){
+            swc_window_focus(temp->window->swc_window);
+        }
+    }
+}
+
+static void goright(void *data, uint32_t time, uint32_t value, uint32_t state){
+    (void)data;
+    (void)time;
+    (void)value;
+    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    split_t *temp = split_move_right(g_workspace->focus);
+    if(temp){
+        g_workspace->focus = temp;
+        split_check_window(temp);
+        if(temp->window){
+            swc_window_focus(temp->window->swc_window);
+        }
+    }
+
+}
+
+static void goup(void *data, uint32_t time, uint32_t value, uint32_t state){
+    (void)data;
+    (void)time;
+    (void)value;
+    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    split_t *temp = split_move_up(g_workspace->focus);
+    if(temp){
+        g_workspace->focus = temp;
+        split_check_window(temp);
+        if(temp->window){
+            swc_window_focus(temp->window->swc_window);
+        }
+    }
+}
+
+static void godown(void *data, uint32_t time, uint32_t value, uint32_t state){
+    (void)data;
+    (void)time;
+    (void)value;
+    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    split_t *temp = split_move_down(g_workspace->focus);
+    if(temp){
+        g_workspace->focus = temp;
+        split_check_window(temp);
+        if(temp->window){
+            swc_window_focus(temp->window->swc_window);
+        }
+    }
+}
+
 void sigchld_handler(int signum){
     logmsg("handled sigchld\n");
     (void)signum;
@@ -145,22 +222,23 @@ int main(){
         retval = 5;
         goto cu_display;
     }
-
-    if(swc_add_binding(SWC_BINDING_KEY,
-                       SWC_MOD_CTRL,
-                       XKB_KEY_q,
-                       &quit, NULL)){
-        retval = 6;
-        goto cu_swc;
+#define ADD_KEY(xkey, func) \
+    if(swc_add_binding(SWC_BINDING_KEY, \
+                       SWC_MOD_CTRL, \
+                       XKB_KEY_ ## xkey, \
+                       &func, NULL)){ \
+        retval = 6; \
+        goto cu_swc; \
     }
-
-    if(swc_add_binding(SWC_BINDING_KEY,
-                       SWC_MOD_CTRL,
-                       XKB_KEY_Return,
-                       &exec_vimb, NULL)){
-        retval = 6;
-        goto cu_swc;
-    }
+    ADD_KEY(q, quit);
+    ADD_KEY(Return, exec_vimb);
+    ADD_KEY(backslash, dohsplit);
+    ADD_KEY(minus, dovsplit);
+    ADD_KEY(h, goleft);
+    ADD_KEY(j, godown);
+    ADD_KEY(k, goup);
+    ADD_KEY(l, goright);
+#undef ADD_KEY
 
     event_loop = wl_display_get_event_loop(disp);
     if(event_loop == NULL){
