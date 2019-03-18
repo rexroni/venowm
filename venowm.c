@@ -74,7 +74,7 @@ static void dohsplit(void *data, uint32_t time, uint32_t value, uint32_t state){
     (void)time;
     (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
-    hsplit(g_workspace->focus, 0.5);
+    workspace_hsplit(g_workspace, g_workspace->focus, 0.5);
 }
 
 static void dovsplit(void *data, uint32_t time, uint32_t value, uint32_t state){
@@ -82,7 +82,7 @@ static void dovsplit(void *data, uint32_t time, uint32_t value, uint32_t state){
     (void)time;
     (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
-    vsplit(g_workspace->focus, 0.5);
+    workspace_vsplit(g_workspace, g_workspace->focus, 0.5);
 }
 
 static void goleft(void *data, uint32_t time, uint32_t value, uint32_t state){
@@ -93,9 +93,8 @@ static void goleft(void *data, uint32_t time, uint32_t value, uint32_t state){
     split_t *temp = split_move_left(g_workspace->focus);
     if(temp){
         g_workspace->focus = temp;
-        split_check_window(temp);
-        if(temp->window){
-            swc_window_focus(temp->window->swc_window);
+        if(temp->win_info){
+            swc_window_focus(temp->win_info->window->swc_window);
         }
     }
 }
@@ -108,9 +107,8 @@ static void goright(void *data, uint32_t time, uint32_t value, uint32_t state){
     split_t *temp = split_move_right(g_workspace->focus);
     if(temp){
         g_workspace->focus = temp;
-        split_check_window(temp);
-        if(temp->window){
-            swc_window_focus(temp->window->swc_window);
+        if(temp->win_info){
+            swc_window_focus(temp->win_info->window->swc_window);
         }
     }
 
@@ -124,9 +122,8 @@ static void goup(void *data, uint32_t time, uint32_t value, uint32_t state){
     split_t *temp = split_move_up(g_workspace->focus);
     if(temp){
         g_workspace->focus = temp;
-        split_check_window(temp);
-        if(temp->window){
-            swc_window_focus(temp->window->swc_window);
+        if(temp->win_info){
+            swc_window_focus(temp->win_info->window->swc_window);
         }
     }
 }
@@ -139,9 +136,8 @@ static void godown(void *data, uint32_t time, uint32_t value, uint32_t state){
     split_t *temp = split_move_down(g_workspace->focus);
     if(temp){
         g_workspace->focus = temp;
-        split_check_window(temp);
-        if(temp->window){
-            swc_window_focus(temp->window->swc_window);
+        if(temp->win_info){
+            swc_window_focus(temp->win_info->window->swc_window);
         }
     }
 }
@@ -247,6 +243,8 @@ int main(){
     }
 
     wl_display_run(disp);
+
+    logmsg("post run\n");
 
 cu_swc:
     swc_finalize();

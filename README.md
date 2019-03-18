@@ -33,3 +33,9 @@ Pronounced like "venom", and definitely *not* pronounced like "vee-no window man
 1. Execute from a console (not X) with `swc-launch ./venowm`.
 
 1. Press "ctrl-q" to quit.
+
+## License
+
+The file `khash.h` is from attractivechaos's [klib](https://github.com/attractivechaos/klib) project.
+
+All other source files in Venowm represent original work for the Venowm project are in the public domain, under the conditions of the [unlicense](https://unlicense.org/).

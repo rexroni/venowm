@@ -1,6 +1,8 @@
 #ifndef WORKSPACE_H
 #define WORKSPACE_H
 
+#include <limits.h>
+
 #include "venowm.h"
 
 workspace_t *workspace_new(void);
@@ -9,7 +11,11 @@ workspace_t *workspace_new(void);
 void workspace_free(workspace_t *workspace);
 
 // uprefs window and adds it to the workspace
-void workspace_add_window(workspace_t *ws, window_t *window);
+void workspace_add_window(workspace_t *ws, window_t *window, bool map_now);
+// removes a window from the workspace and downrefs it
+void workspace_remove_window(workspace_t *ws, window_t *window);
+// removes a window from a frame and put it in the hidden list
+void workspace_remove_window_from_frame(workspace_t *ws, split_t *split);
 
 // unmap all windows in workspace
 void workspace_hide(workspace_t *ws);
@@ -19,5 +25,8 @@ void workspace_restore(workspace_t *ws);
 // rerender to existing screens, such as after screen add/delete
 // (as long as window mapping/unmapping is idempotent, this is sufficient:)
 #define workspace_rerender workspace_restore
+
+void workspace_vsplit(workspace_t *ws, split_t *split, float fraction);
+void workspace_hsplit(workspace_t *ws, split_t *split, float fraction);
 
 #endif // WORKSPACE_H

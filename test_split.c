@@ -117,6 +117,9 @@ void draw_layout(split_t *root, split_t *highlight){
     write(1, &grid, HEIGHT*(WIDTH+1));
 }
 
+#define vsplit(split, fraction) split_do_split(split, true, fraction)
+#define hsplit(split, fraction) split_do_split(split, false, fraction)
+
 int main(){
     split_t *root = split_new(NULL);
     split_t *highlight = NULL;

@@ -1,6 +1,6 @@
 CC=gcc
 LD=ld
-CFLAGS=-Wall -Wextra `pkg-config --cflags swc` -std=c99 -g
+CFLAGS=-Wall -Wextra `pkg-config --cflags swc` -std=c99 -g -fdiagnostics-color=always
 LDFLAGS=`pkg-config --libs swc` -lm
 
 all: venowm test_split

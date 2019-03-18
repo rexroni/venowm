@@ -5,8 +5,9 @@
 
 #include "venowm.h"
 
-// the returned window starts with 2 refs: this ptr and the swc callback
+// the returned window starts with 0 refs
 window_t *window_new(struct swc_window *swc_window);
+void window_free(struct swc_window *swc_window);
 
 void window_ref_up(window_t *window);
 void window_ref_down(window_t *window);

@@ -10,7 +10,12 @@ void handle_window_destroy(void *data){
     // dereference window_t
     window_t *window = data;
     window->isvalid = false;
-    window_ref_down(window);
+    // go through each workspace and remove this window
+    for(size_t i = 0; i < g_nworkspaces; i++){
+        workspace_remove_window(g_workspaces[i], window);
+    }
+    // no more references to window, free it
+    free(window);
 }
 
 static struct swc_window_handler window_handler = {
@@ -30,43 +35,33 @@ void handle_new_window(struct swc_window *swc_window){
     if(!window){
         /* oops, no memory.  Close the window.  No handler has been set, so we
            don't need to worry about receiving a window.destroy hook */
-        logmsg("no memory! closing window");
+        logmsg("no memoey! closing window");
         swc_window_close(swc_window);
         return;
     }
-    // append this window to the current workspace
-    int err;
-    workspace_t *ws = g_workspace;
-    APPEND_PTR(ws->windows, ws->windows_size, ws->nwindows, window, err);
-    if(err){
-        logmsg("no memory! closing window");
-        // one downref will cause the window to close
-        window_ref_down(window);
-        return;
-    }
-    // add window to the current workspace
-    workspace_add_window(g_workspace, window);
     // set some defaults
     swc_window_set_border(window->swc_window, 0, 0);
     swc_window_set_tiled(window->swc_window);
-    // give the window focus
-    swc_window_focus(window->swc_window);
-    // map the window to the current frame
-    split_map_window(g_workspace->focus, window);
+    logmsg("pre add window\n");
+    // add window to the current workspace, mapping/focusing it immediately
+    workspace_add_window(g_workspace, window, true);
+    logmsg("post add window\n");
 }
 
-// the returned window starts with 2 refs: this ptr and the swc callback
+// the returned window starts with 0 refs
 window_t *window_new(struct swc_window *swc_window){
     window_t *out = malloc(sizeof(*out));
     if(out == NULL){
         return NULL;
     }
+    // not drawn yet
+    out->screen = NULL;
     // store swc pointer
     out->swc_window = swc_window;
     // set the callback
     swc_window_set_handler(swc_window, &window_handler, out);
     // one pointer is the returned *out, the other is the swc callback
-    out->refs = 2;
+    out->refs = 0;
     out->isvalid = true;
     return out;
 }
@@ -76,13 +71,12 @@ void window_ref_up(window_t *window){
 }
 
 void window_ref_down(window_t *window){
-    window->refs--;
-    if(window->refs == 1 && window->isvalid){
-        // the last reference is the app callback; close the window
-        swc_window_close(window->swc_window);
-    }else if(window->refs == 0){
-        // free the window struct
-        free(window);
+    if(--window->refs < 1){
+        // make sure the swc_window has not already closed
+        if(window->isvalid){
+            // close the window
+            swc_window_close(window->swc_window);
+        }
     }
 }
 

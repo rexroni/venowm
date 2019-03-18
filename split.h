@@ -5,9 +5,6 @@
 
 #include "venowm.h"
 
-// forget closed windows.  Use this before dereferencing split->window.
-void split_check_window(split_t *split);
-
 // takes a size S and returns within [0,(S-1)]
 static inline int frac_of(float f, int size){
     return (int)roundf(f * (size-1));
@@ -15,7 +12,7 @@ static inline int frac_of(float f, int size){
 
 // use parent=NULL for a root element
 split_t *split_new(split_t *parent);
-// frees all the split_t objects and unmaps/downrefs all windows
+// frees all the split_t objects, closing windows that are left
 void split_free(split_t *split);
 
 typedef struct {
@@ -29,22 +26,12 @@ typedef struct {
    screen area) for a given split. */
 sides_t get_sides(split_t *split);
 
-// returns 0 for OK, -1 for error
-int do_split(split_t *split, bool vertical, float fraction);
-
-static inline int vsplit(split_t *split, float fraction){
-    return do_split(split, true, fraction);
-}
-
-static inline int hsplit(split_t *split, float fraction){
-    return do_split(split, false, fraction);
-}
-
-// call window_map on all frames's windows, *split must be a root
-void split_restore(split_t *split, screen_t *screen);
+// returns 0 for OK or -1 for error
+// (note that windows still need to be remapped manually after this step)
+int split_do_split(split_t *split, bool vertical, float fraction);
 
 // call window_map on a single frame, *split must be a leaf
-void split_map_window(split_t *split, window_t *window);
+void split_map_window(split_t *split, ws_win_info_t *win_info);
 
 // returns NULL if no move is possible (such as an edge)
 split_t *do_split_move(split_t *start, bool vertical, bool increasing);
@@ -61,5 +48,11 @@ static inline split_t *split_move_up(split_t *start){
 static inline split_t *split_move_down(split_t *start){
     return do_split_move(start, true, true);
 }
+
+// get a callback at every leaf of the split tree, with relative boundaries
+typedef int (*split_do_cb_t)(split_t *split, void* data,
+                             float t, float b, float l, float r);
+
+int split_do_at_each(split_t *split, split_do_cb_t cb, void* data);
 
 #endif // SPLIT_H

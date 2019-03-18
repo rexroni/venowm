@@ -3,6 +3,9 @@
 
 #include <string.h>
 #include <stdbool.h>
+#include <stdint.h>
+
+#include "khash.h"
 
 #include "logmsg.h"
 
@@ -18,28 +21,69 @@ typedef struct {
     struct swc_window *swc_window;
     // windows may close or die while there are still open refs to this struct
     bool isvalid;
+    // pointer to the screen the window is drawn on (or NULL if not drawn)
+    screen_t *screen;
 } window_t;
+
+// forward declaration of the special workspace hashtable
+struct ws_win_info_t;
+typedef struct ws_win_info_t ws_win_info_t;
+
+
+// define our custom hash table type for "workspace window list" data
+// name=wswl
+// key type = workspace_t*
+// value type = ws_win_info_t
+// is_map = true (not a set)
+// hash and equality functions are architecture-dependent
+#if UINTPTR_MAX == 0xffffffffffffffffULL
+    // 64-bit
+    #define ptr_hash_func(ptr) kh_int64_hash_func((intptr_t)ptr)
+    #define ptr_equal_func(a, b) kh_int64_hash_equal(a, b)
+#else
+    // 32-bit
+    #define ptr_hash_func(ptr) kh_int_hash_func((intptr_t)ptr)
+    #define ptr_equal_func(a, b) kh_int_hash_equal(a, b)
+#endif
+KHASH_INIT(wswl, window_t*, ws_win_info_t*, true,
+           ptr_hash_func, ptr_equal_func);
 
 typedef struct split_t {
     bool isleaf;
     bool isvertical;
-    window_t *window; // NULL means there's no window in this frame
+    ws_win_info_t *win_info;
     float fraction;
     struct split_t *parent;
     struct split_t *frames[2];
-    screen_t *screen; // not used internally to split.c
+    screen_t *screen;
 } split_t;
 
+/* workspace_t has a hashtable of workspace-specific information about each
+   window.  workspace_t also has a queue of windows associated with the
+   workspace but which are hidden.  This object is what gets stored in both
+   the hashmap and the queue, and it represents all of the reverse pointers a
+   hashmap has towards any window_t. */
+struct ws_win_info_t {
+    window_t *window;
+    // frame which points to this window (must be NULL if window is in queue)
+    split_t *frame;
+    // queue element if window is hidden (must be NULL if window is in a frame)
+    struct ws_win_info_t *prev;
+    struct ws_win_info_t *next;
+};
+
 typedef struct {
-    window_t **windows;
-    size_t windows_size;
-    size_t nwindows;
-    // one root per split
+    // one root per screen
     split_t **roots;
     size_t roots_size;
     size_t nroots;
     // the focused frame, should always be a leaf
     split_t *focus;
+    // hashtable of workspace-specific information about each window
+    kh_wswl_t *windows;
+    // a queue of windows associated with the workspace but which are hidden
+    ws_win_info_t *hidden_first;
+    ws_win_info_t *hidden_last;
 } workspace_t;
 
 // global variables
@@ -101,10 +145,20 @@ extern size_t g_nworkspaces;
 
 #define REMOVE_PTR(ptr, size, num, val, removed){ \
     removed = false; \
-    for(size_t i = 0; i < num; i ++){ \
+    for(size_t i = 0; i < num; i++){ \
         if(ptr[i] == val){ \
             REMOVE_PTR_IDX(ptr, size, num, i); \
             removed = true; \
+            break; \
+        } \
+    } \
+}
+
+#define PTR_CONTAINS(ptr, size, num, val, ret){ \
+    ret = false; \
+    for(size_t i = 0; i < num; i++){ \
+        if(ptr[i] == val){ \
+            ret = true; \
             break; \
         } \
     } \

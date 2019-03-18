@@ -5,16 +5,6 @@
 #include "split.h"
 #include "window.h"
 
-// a getter, which triggers the validity check on the window
-void split_check_window(split_t *split){
-    if(!split->window) return;
-    if(!split->window->isvalid){
-        // forget this window
-        window_ref_down(split->window);
-        split->window = NULL;
-    }
-}
-
 split_t *split_new(split_t *parent){
     split_t *out = malloc(sizeof(*out));
     if(!out) return NULL;
@@ -24,27 +14,22 @@ split_t *split_new(split_t *parent){
     out->frames[0] = NULL;
     out->frames[1] = NULL;
     out->isleaf = true;
-    out->window = NULL;
+    out->win_info = NULL;
     out->screen = parent ? parent->screen : NULL;
     return out;
 }
 
-// frees all the split_t objects and unmaps/downrefs all windows
+// frees all the split_t objects, closing windows that are left
 void split_free(split_t *split){
     if(!split) return;
-    split_check_window(split);
-    if(split->window){
-        window_ref_down(split->window);
-        swc_window_hide(split->window->swc_window);
-        // TODO add window to workspace's hidden window list
-    }
+    // win_info should be empty here.  If it's not, we can't fix it now
     split_free(split->frames[0]);
     split_free(split->frames[1]);
     free(split);
 }
 
 // returns 0 for OK, -1 for error
-int do_split(split_t *split, bool vertical, float fraction){
+int split_do_split(split_t *split, bool vertical, float fraction){
     // allocate two children
     split->frames[0] = split_new(split);
     if(!split->frames[0]) return -1;
@@ -57,21 +42,20 @@ int do_split(split_t *split, bool vertical, float fraction){
     split->fraction = fraction;
     split->isvertical = vertical;
     split->isleaf = false;
-    // if this has a window, pass it to a child
-    split_check_window(split);
-    if(split->window){
-        // remap valid windows
-        split_map_window(split->frames[0], split->window);
-        // forget the reference here
-        window_ref_down(split->window);
-        split->window = NULL;
+    // if we have a win_info that needs to be passed to the child
+    if(split->win_info){
+        // move *win_info to child
+        split->frames[0]->win_info = split->win_info;
+        split->win_info = NULL;
+        // fix *frame pointer in win_info
+        split->frames[0]->win_info->frame = split->frames[0];
     }
-    // if this was the focus, pass focus to child
+    // pass focus if necessary
     if(g_workspace->focus == split){
         g_workspace->focus = split->frames[0];
-        // no need to give focus to window, we didn't take it away
     }
-    // TODO: map unmapped windows in the workspace to the new frame
+    // windows needs redrawing, new empty frame needs filling
+    // (no way to redraw a window without knowing the screen)
     return 0;
 }
 
@@ -106,86 +90,6 @@ sides_t get_sides(split_t *split){
         }
     }
     return (sides_t){.t = t, .b = b, .l = l, .r = r};
-}
-
-static void do_show_window(window_t *window, screen_t *screen,
-                           float t, float b, float l, float r){
-    // make window visible
-    swc_window_show(window->swc_window);
-    // pull out screen geometry
-    int32_t x = screen->swc_screen->usable_geometry.x;
-    int32_t y = screen->swc_screen->usable_geometry.y;
-    uint32_t w = screen->swc_screen->usable_geometry.width;
-    uint32_t h = screen->swc_screen->usable_geometry.height;
-    // build window geometry
-    // TODO: decide how to do the offsets to avoid skipping/overlapping pixels
-    int32_t xmin = x + frac_of(l, (int)w);
-    int32_t xmax = x + frac_of(r, (int)w);
-    int32_t ymin = y + frac_of(t, (int)h);
-    int32_t ymax = y + frac_of(b, (int)h);
-    uint32_t wout = xmax - xmin;
-    uint32_t hout = ymax - ymin;
-    logmsg("do_show_window: x:%d y:%d h:%u w:%u\n", xmin, ymin, hout, wout);
-    // set window geometry
-    swc_window_set_position(window->swc_window, xmin, ymin);
-    swc_window_set_size(window->swc_window, wout, hout);
-}
-
-static void do_split_restore(split_t *split, screen_t *screen,
-                             float t, float b, float l, float r){
-    // cache this screen pointer
-    split->screen = screen;
-    if(split->isleaf){
-        split_check_window(split);
-        if(split->window) do_show_window(split->window, screen, t, b, l, r);
-        return;
-    }
-    if(split->isvertical){
-        float line = t + (b-t)*split->fraction;
-        do_split_restore(split->frames[0], screen, t, line, l, r);
-        do_split_restore(split->frames[1], screen, line, b, l, r);
-    }else{
-        float line = l + (r-l)*split->fraction;
-        do_split_restore(split->frames[0], screen, t, b, l, line);
-        do_split_restore(split->frames[1], screen, t, b, line, r);
-    }
-}
-
-// call window_map on all frames, *split must be a root
-void split_restore(split_t *split, screen_t *screen){
-    if(split->parent){
-        logmsg("whoa there, you can't restore that non-root split!\n");
-    }
-    do_split_restore(split, screen, 0.0, 1.0, 0.0, 1.0);
-}
-
-// call window_map on a single frame, *split must be a leaf
-void split_map_window(split_t *split, window_t *window){
-    if(!split->isleaf){
-        logmsg("whoa there, you can't stick that window there!\n");
-    }
-    // check window validity
-    if(!window->isvalid){
-        window_ref_down(window);
-        return;
-    }
-    // are we unmapping a window already in that split?
-    split_check_window(split);
-    if(split->window){
-        swc_window_hide(split->window->swc_window);
-        // TODO add window to workspace's hidden window list
-        window_ref_down(split->window);
-        split->window = NULL;
-    }
-    // save the window in the split
-    window_ref_up(window);
-    split->window = window;
-    // get the geometry of the window
-    sides_t sides = get_sides(split);
-    float t = sides.t, b = sides.b, l = sides.l, r = sides.r;
-    do_show_window(window, split->screen, t, b, l, r);
-    // DEBUG: get root and rerender everything
-
 }
 
 split_t *do_split_move(split_t *start, bool vertical, bool increasing){
@@ -246,4 +150,31 @@ split_t *do_split_move(split_t *start, bool vertical, bool increasing){
     }
     // done! *here points to where we want to be
     return here;
+}
+
+static int do_at_each(split_t *split, split_do_cb_t cb, void* data,
+                      float t, float b, float l, float r){
+    int ret = 0;
+    ret = cb(split, data, t, b, l, r);
+    if(ret) return ret;
+    // don't descend past a leaf
+    if(split->isleaf) return 0;
+    if(split->isvertical){
+        float line = t + (b-t)*split->fraction;
+        ret = cb(split->frames[0], data, t, line, l, r);
+        if(ret) return ret;
+        ret = cb(split->frames[1], data, line, b, l, r);
+        if(ret) return ret;
+    }else{
+        float line = l + (r-l)*split->fraction;
+        ret = cb(split->frames[0], data, t, b, l, line);
+        if(ret) return ret;
+        ret = cb(split->frames[1], data, t, b, line, r);
+        if(ret) return ret;
+    }
+    return 0;
+}
+
+int split_do_at_each(split_t *split, split_do_cb_t cb, void* data){
+    return do_at_each(split, cb, data, 0.0, 1.0, 0.0, 1.0);
 }
