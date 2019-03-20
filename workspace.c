@@ -130,6 +130,7 @@ static void redraw_frame(split_t *frame, screen_t *screen,
 }
 
 static void draw_window(ws_win_info_t *info, split_t *frame){
+    if(!info || !frame) return;
     // make sure frame is currently on a screen
     if(!frame->screen) return;
     // store forward and backward pointers
@@ -149,7 +150,6 @@ void workspace_add_window(workspace_t *ws, window_t *window, bool map_now){
     ws_win_info_t *info = malloc(sizeof(*info));
     if(!info){
         window_ref_down(window);
-        logmsg("waw 1\n");
         return;
     }
     *info = (ws_win_info_t){.window = window};
@@ -162,7 +162,6 @@ void workspace_add_window(workspace_t *ws, window_t *window, bool map_now){
     if(ret < 0){
         window_ref_down(window);
         free(info);
-        logmsg("waw 2 (%d)\n", ret);
         return;
     }
     // write to index
@@ -179,7 +178,6 @@ void workspace_add_window(workspace_t *ws, window_t *window, bool map_now){
         // append window to hidden windows
         hidden_append(ws, info);
     }
-    logmsg("waw 3\n");
 }
 
 // removes a window from the workspace and downrefs it
@@ -242,7 +240,6 @@ static int restore_cb(split_t *split, void *data,
     screen_t *screen = data;
     // save screen
     split->screen = screen;
-    logmsg("restore_cb\n");
     // that's all we do for non-leaves
     if(!split->isleaf) return 0;
     // do nothing if this leaf has no window
@@ -268,7 +265,6 @@ void workspace_restore(workspace_t *ws){
     /* TODO: think of a better way to do weakly-persistent root-screen mappings
              (this strategy is OK only in the trivial case (no changes) and
              it is at least safe in more complex cases) */
-    logmsg("workspace_restore\n");
 
     // Step 1: too many roots?
     while(ws->nroots > g_nscreens){
@@ -310,19 +306,13 @@ void workspace_restore(workspace_t *ws){
 
 static void workspace_do_split(workspace_t *ws, split_t *split, bool vertical,
                                float fraction){
+    // first child inherits whatever was in the old split (window, focus)
     int ret = split_do_split(split, vertical, fraction);
     if(ret) return;
-    // first child inherits whatever was in the old split
-    ws_win_info_t *info = split->win_info;
-    if(info){
-        split->win_info = NULL;
-        draw_window(info, split->frames[0]);
-    }
+    // redraw window if there was one
+    draw_window(split->frames[0]->win_info, split->frames[0]);
     // second child gets a window if one was hidden
-    info = hidden_pop_first(ws);
-    if(info){
-        draw_window(info, split->frames[1]);
-    }
+    draw_window(hidden_pop_first(ws), split->frames[1]);
 }
 
 void workspace_vsplit(workspace_t *ws, split_t *split, float fraction){
@@ -331,4 +321,16 @@ void workspace_vsplit(workspace_t *ws, split_t *split, float fraction){
 void workspace_hsplit(workspace_t *ws, split_t *split, float fraction){
     workspace_do_split(ws, split, false, fraction);
 
+}
+
+void workspace_remove_frame(workspace_t *ws, split_t *split){
+    // don't do this to root frames
+    split_t *parent = split->parent;
+    if(!parent) return;
+    // remove any window
+    workspace_remove_window_from_frame(ws, split);
+    // remove the frame
+    split_do_remove(split);
+    // redraw any window
+    draw_window(parent->win_info, parent);
 }

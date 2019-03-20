@@ -90,13 +90,9 @@ static void goleft(void *data, uint32_t time, uint32_t value, uint32_t state){
     (void)time;
     (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
-    split_t *temp = split_move_left(g_workspace->focus);
-    if(temp){
-        g_workspace->focus = temp;
-        if(temp->win_info){
-            swc_window_focus(temp->win_info->window->swc_window);
-        }
-    }
+    split_t *new = split_move_left(g_workspace->focus);
+    g_workspace->focus = new;
+    swc_window_focus(new->win_info ? new->win_info->window->swc_window : NULL);
 }
 
 static void goright(void *data, uint32_t time, uint32_t value, uint32_t state){
@@ -104,14 +100,9 @@ static void goright(void *data, uint32_t time, uint32_t value, uint32_t state){
     (void)time;
     (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
-    split_t *temp = split_move_right(g_workspace->focus);
-    if(temp){
-        g_workspace->focus = temp;
-        if(temp->win_info){
-            swc_window_focus(temp->win_info->window->swc_window);
-        }
-    }
-
+    split_t *new = split_move_right(g_workspace->focus);
+    g_workspace->focus = new;
+    swc_window_focus(new->win_info ? new->win_info->window->swc_window : NULL);
 }
 
 static void goup(void *data, uint32_t time, uint32_t value, uint32_t state){
@@ -119,13 +110,9 @@ static void goup(void *data, uint32_t time, uint32_t value, uint32_t state){
     (void)time;
     (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
-    split_t *temp = split_move_up(g_workspace->focus);
-    if(temp){
-        g_workspace->focus = temp;
-        if(temp->win_info){
-            swc_window_focus(temp->win_info->window->swc_window);
-        }
-    }
+    split_t *new = split_move_up(g_workspace->focus);
+    g_workspace->focus = new;
+    swc_window_focus(new->win_info ? new->win_info->window->swc_window : NULL);
 }
 
 static void godown(void *data, uint32_t time, uint32_t value, uint32_t state){
@@ -133,14 +120,19 @@ static void godown(void *data, uint32_t time, uint32_t value, uint32_t state){
     (void)time;
     (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
-    split_t *temp = split_move_down(g_workspace->focus);
-    if(temp){
-        g_workspace->focus = temp;
-        if(temp->win_info){
-            swc_window_focus(temp->win_info->window->swc_window);
-        }
-    }
+    split_t *new = split_move_down(g_workspace->focus);
+    g_workspace->focus = new;
+    swc_window_focus(new->win_info ? new->win_info->window->swc_window : NULL);
 }
+
+static void remove_frame(void *data, uint32_t time, uint32_t value, uint32_t state){
+    (void)data;
+    (void)time;
+    (void)value;
+    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    workspace_remove_frame(g_workspace, g_workspace->focus);
+}
+
 
 void sigchld_handler(int signum){
     logmsg("handled sigchld\n");
@@ -234,6 +226,7 @@ int main(){
     ADD_KEY(j, godown);
     ADD_KEY(k, goup);
     ADD_KEY(l, goright);
+    ADD_KEY(y, remove_frame);
 #undef ADD_KEY
 
     event_loop = wl_display_get_event_loop(disp);

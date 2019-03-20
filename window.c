@@ -42,10 +42,8 @@ void handle_new_window(struct swc_window *swc_window){
     // set some defaults
     swc_window_set_border(window->swc_window, 0, 0);
     swc_window_set_tiled(window->swc_window);
-    logmsg("pre add window\n");
     // add window to the current workspace, mapping/focusing it immediately
     workspace_add_window(g_workspace, window, true);
-    logmsg("post add window\n");
 }
 
 // the returned window starts with 0 refs

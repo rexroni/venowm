@@ -29,6 +29,8 @@ void split_free(split_t *split){
 }
 
 // returns 0 for OK, -1 for error
+/* first child inherits any window or global focus, but redrawing that window
+   has to be done at a higher level.  Same with uncovering a hidden window */
 int split_do_split(split_t *split, bool vertical, float fraction){
     // allocate two children
     split->frames[0] = split_new(split);
@@ -54,9 +56,33 @@ int split_do_split(split_t *split, bool vertical, float fraction){
     if(g_workspace->focus == split){
         g_workspace->focus = split->frames[0];
     }
-    // windows needs redrawing, new empty frame needs filling
-    // (no way to redraw a window without knowing the screen)
+
     return 0;
+}
+
+/* Workspace should pre-check and not call this on a root frame.  The window in
+   this frame should already have been hidden.  Parent split will inherit focus
+   from this child or a window from the other.  Redrawing any window has to be
+   done at a higher level. */
+void split_do_remove(split_t *split){
+    split_t *parent = split->parent;
+    split_t *other = parent->frames[split == parent->frames[0]];
+    // parent inherits focus from this split
+    if(g_workspace->focus == split){
+        g_workspace->focus = parent;
+    }
+    // parent inherits window from other child
+    parent->win_info = other->win_info;
+    if(other->win_info){
+        parent->win_info->frame = parent;
+    }
+    // delete both children
+    split_free(parent->frames[0]);
+    split_free(parent->frames[1]);
+    // make parent a leaf
+    parent->isleaf = true;
+    parent->frames[0] = NULL;
+    parent->frames[1] = NULL;
 }
 
 sides_t get_sides(split_t *split){
@@ -103,7 +129,7 @@ split_t *do_split_move(split_t *start, bool vertical, bool increasing){
         if(!parent){
             // found root split
             // TODO: handle multiple screens
-            return NULL;
+            return start;
         }
         bool first_child = (parent->frames[0] == here);
         if(parent->isvertical != vertical){

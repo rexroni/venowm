@@ -29,4 +29,6 @@ void workspace_restore(workspace_t *ws);
 void workspace_vsplit(workspace_t *ws, split_t *split, float fraction);
 void workspace_hsplit(workspace_t *ws, split_t *split, float fraction);
 
+void workspace_remove_frame(workspace_t *ws, split_t *split);
+
 #endif // WORKSPACE_H
