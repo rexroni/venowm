@@ -28,6 +28,22 @@ cu_malloc:
     return NULL;
 }
 
+static void hidden_prepend(workspace_t *ws, ws_win_info_t *info){
+    // if list is empty, info becomes first and last
+    if(ws->hidden_first == NULL){
+        ws->hidden_first = info;
+        ws->hidden_last = info;
+        info->prev = NULL;
+        info->next = NULL;
+        return;
+    }
+    // otherwise just prepend
+    info->next = ws->hidden_first;
+    ws->hidden_first->prev = info;
+    info->prev = NULL;
+    ws->hidden_first = info;
+}
+
 static void hidden_append(workspace_t *ws, ws_win_info_t *info){
     // if list is empty, info becomes first and last
     if(ws->hidden_last == NULL){
@@ -61,6 +77,23 @@ static ws_win_info_t *hidden_pop_first(workspace_t *ws){
     return out;
 }
 
+static ws_win_info_t *hidden_pop_last(workspace_t *ws){
+    // check if list is empty
+    if(ws->hidden_last == NULL) return NULL;
+    ws_win_info_t *out = ws->hidden_last;
+    // check if there is only one element
+    if(ws->hidden_first == ws->hidden_last){
+        ws->hidden_first = NULL;
+        ws->hidden_last = NULL;
+    }else{
+        out->prev->next = NULL;
+        ws->hidden_last = out->prev;
+    }
+    out->prev = NULL;
+    out->next = NULL;
+    return out;
+}
+
 static void hidden_remove(workspace_t *ws, ws_win_info_t *info){
     // was it the first element?
     if(ws->hidden_first == info)
@@ -88,7 +121,7 @@ void workspace_free(workspace_t *ws){
             // remove from hashmap
 	        kh_del(wswl, ws->windows, k);
             // remove from frame
-            workspace_remove_window_from_frame(ws, info->frame);
+            workspace_remove_window_from_frame(ws, info->frame, false);
             // remove from hidden list
             hidden_remove(ws, info);
             // no more references from this workspace
@@ -130,12 +163,14 @@ static void redraw_frame(split_t *frame, screen_t *screen,
 }
 
 static void draw_window(ws_win_info_t *info, split_t *frame){
-    if(!info || !frame) return;
-    // make sure frame is currently on a screen
-    if(!frame->screen) return;
-    // store forward and backward pointers
+    // "draw window in NULL" -> noop
+    if(!frame) return;
+    // "draw NULL in frame" -> erase win_info in that frame
     frame->win_info = info;
+    if(!info) return;
     info->frame = frame;
+    // don't actually redraw the window unless it is on screen
+    if(!frame->screen) return;
     // get the geometry of the window
     sides_t sides = get_sides(frame);
     float t = sides.t, b = sides.b, l = sides.l, r = sides.r;
@@ -169,7 +204,7 @@ void workspace_add_window(workspace_t *ws, window_t *window, bool map_now){
 
     if(map_now){
         // hide whatever window is currently in the focused frame
-        workspace_remove_window_from_frame(ws, ws->focus);
+        workspace_remove_window_from_frame(ws, ws->focus, false);
         // draw this window
         draw_window(info, ws->focus);
         // give the window focus
@@ -191,16 +226,20 @@ void workspace_remove_window(workspace_t *ws, window_t *window){
     }
 	ws_win_info_t *info = kh_value(ws->windows, k);
 	kh_del(wswl, ws->windows, k);
+    split_t *frame = info->frame;
     // remove from frame
-    workspace_remove_window_from_frame(ws, info->frame);
+    workspace_remove_window_from_frame(ws, info->frame, false);
     // remove from hidden list
     hidden_remove(ws, info);
+    // replace with another window
+    workspace_next_hidden_win_at(ws, frame);
     // no more references from this workspace
     window_ref_down(info->window);
     free(info);
 }
 
-void workspace_remove_window_from_frame(workspace_t *ws, split_t *split){
+void workspace_remove_window_from_frame(workspace_t *ws, split_t *split,
+                                        bool prepend_old_window){
     if(!split) return;
     ws_win_info_t *info = split->win_info;
     if(!info) return;
@@ -210,7 +249,10 @@ void workspace_remove_window_from_frame(workspace_t *ws, split_t *split){
     }
     split->win_info = NULL;
     info->frame = NULL;
-    hidden_append(ws, info);
+    if(prepend_old_window)
+        hidden_prepend(ws, info);
+    else
+        hidden_append(ws, info);
 }
 
 static int hide_cb(split_t *split, void *data,
@@ -255,7 +297,7 @@ static int pre_rm_root_cb(split_t *split, void *data,
     // dereference workspace
     workspace_t *ws = data;
     // remove any window in the frame (and list it as hidden)
-    workspace_remove_window_from_frame(ws, split);
+    workspace_remove_window_from_frame(ws, split, false);
     return 0;
 }
 
@@ -328,9 +370,46 @@ void workspace_remove_frame(workspace_t *ws, split_t *split){
     split_t *parent = split->parent;
     if(!parent) return;
     // remove any window
-    workspace_remove_window_from_frame(ws, split);
+    workspace_remove_window_from_frame(ws, split, false);
     // remove the frame
     split_do_remove(split);
     // redraw any window
     draw_window(parent->win_info, parent);
+}
+
+void workspace_swap_windows_from_frames(split_t *src, split_t *dst){
+    if(!src || !dst || src == dst) return;
+    ws_win_info_t *src_info = src->win_info;
+    ws_win_info_t *dst_info = dst->win_info;
+    // place the windows in their new frames
+    draw_window(src_info, dst);
+    draw_window(dst_info, src);
+    // dst might inherit focus from src
+    if(g_workspace->focus == src) g_workspace->focus = dst;
+}
+
+void workspace_next_hidden_win_at(workspace_t *ws, split_t *split){
+    if(!split) return;
+    ws_win_info_t *info = hidden_pop_first(ws);
+    if(!info) return;
+    // remove any window
+    workspace_remove_window_from_frame(ws, split, false);
+    // place new window
+    draw_window(info, split);
+    if(info){
+        swc_window_focus(info->window->swc_window);
+    }
+}
+
+void workspace_prev_hidden_win_at(workspace_t *ws, split_t *split){
+    if(!split) return;
+    ws_win_info_t *info = hidden_pop_last(ws);
+    if(!info) return;
+    // remove any window
+    workspace_remove_window_from_frame(ws, split, true);
+    // place new window
+    draw_window(info, split);
+    if(info){
+        swc_window_focus(info->window->swc_window);
+    }
 }

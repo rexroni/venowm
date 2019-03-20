@@ -37,9 +37,7 @@ static const struct swc_manager manager = {.new_screen=&handle_new_screen,
 
 static void quit(void *data, uint32_t time, uint32_t value, uint32_t state){
     logmsg("called quit\n");
-    (void)data;
-    (void)time;
-    (void)value;
+    (void)data; (void)time; (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
     wl_display_terminate(disp);
 }
@@ -62,33 +60,25 @@ static void exec(const char *shcmd){
 }
 
 static void exec_vimb(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data;
-    (void)time;
-    (void)value;
+    (void)data; (void)time; (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
     exec("env GDK_BACKEND=wayland vimb");
 }
 
 static void dohsplit(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data;
-    (void)time;
-    (void)value;
+    (void)data; (void)time; (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
     workspace_hsplit(g_workspace, g_workspace->focus, 0.5);
 }
 
 static void dovsplit(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data;
-    (void)time;
-    (void)value;
+    (void)data; (void)time; (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
     workspace_vsplit(g_workspace, g_workspace->focus, 0.5);
 }
 
 static void goleft(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data;
-    (void)time;
-    (void)value;
+    (void)data; (void)time; (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
     split_t *new = split_move_left(g_workspace->focus);
     g_workspace->focus = new;
@@ -96,9 +86,7 @@ static void goleft(void *data, uint32_t time, uint32_t value, uint32_t state){
 }
 
 static void goright(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data;
-    (void)time;
-    (void)value;
+    (void)data; (void)time; (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
     split_t *new = split_move_right(g_workspace->focus);
     g_workspace->focus = new;
@@ -106,9 +94,7 @@ static void goright(void *data, uint32_t time, uint32_t value, uint32_t state){
 }
 
 static void goup(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data;
-    (void)time;
-    (void)value;
+    (void)data; (void)time; (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
     split_t *new = split_move_up(g_workspace->focus);
     g_workspace->focus = new;
@@ -116,9 +102,7 @@ static void goup(void *data, uint32_t time, uint32_t value, uint32_t state){
 }
 
 static void godown(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data;
-    (void)time;
-    (void)value;
+    (void)data; (void)time; (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
     split_t *new = split_move_down(g_workspace->focus);
     g_workspace->focus = new;
@@ -126,11 +110,49 @@ static void godown(void *data, uint32_t time, uint32_t value, uint32_t state){
 }
 
 static void remove_frame(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data;
-    (void)time;
-    (void)value;
+    (void)data; (void)time; (void)value;
     if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
     workspace_remove_frame(g_workspace, g_workspace->focus);
+}
+
+static void swapleft(void *data, uint32_t time, uint32_t value, uint32_t state){
+    (void)data; (void)time; (void)value;
+    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    split_t *new = split_move_left(g_workspace->focus);
+    workspace_swap_windows_from_frames(g_workspace->focus, new);
+}
+
+static void swapright(void *data, uint32_t time, uint32_t value, uint32_t state){
+    (void)data; (void)time; (void)value;
+    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    split_t *new = split_move_right(g_workspace->focus);
+    workspace_swap_windows_from_frames(g_workspace->focus, new);
+}
+
+static void swapup(void *data, uint32_t time, uint32_t value, uint32_t state){
+    (void)data; (void)time; (void)value;
+    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    split_t *new = split_move_up(g_workspace->focus);
+    workspace_swap_windows_from_frames(g_workspace->focus, new);
+}
+
+static void swapdown(void *data, uint32_t time, uint32_t value, uint32_t state){
+    (void)data; (void)time; (void)value;
+    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    split_t *new = split_move_down(g_workspace->focus);
+    workspace_swap_windows_from_frames(g_workspace->focus, new);
+}
+
+static void next_win(void *data, uint32_t time, uint32_t value, uint32_t state){
+    (void)data; (void)time; (void)value;
+    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    workspace_next_hidden_win_at(g_workspace, g_workspace->focus);
+}
+
+static void prev_win(void *data, uint32_t time, uint32_t value, uint32_t state){
+    (void)data; (void)time; (void)value;
+    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+    workspace_prev_hidden_win_at(g_workspace, g_workspace->focus);
 }
 
 
@@ -218,6 +240,14 @@ int main(){
         retval = 6; \
         goto cu_swc; \
     }
+#define ADD_KEY_SHIFT(xkey, func) \
+    if(swc_add_binding(SWC_BINDING_KEY, \
+                       SWC_MOD_CTRL | SWC_MOD_SHIFT, \
+                       XKB_KEY_ ## xkey, \
+                       &func, NULL)){ \
+        retval = 6; \
+        goto cu_swc; \
+    }
     ADD_KEY(q, quit);
     ADD_KEY(Return, exec_vimb);
     ADD_KEY(backslash, dohsplit);
@@ -227,6 +257,12 @@ int main(){
     ADD_KEY(k, goup);
     ADD_KEY(l, goright);
     ADD_KEY(y, remove_frame);
+    ADD_KEY_SHIFT(h, swapleft);
+    ADD_KEY_SHIFT(j, swapdown);
+    ADD_KEY_SHIFT(k, swapup);
+    ADD_KEY_SHIFT(l, swapright);
+    ADD_KEY(space, next_win);
+    ADD_KEY_SHIFT(space, prev_win);
 #undef ADD_KEY
 
     event_loop = wl_display_get_event_loop(disp);

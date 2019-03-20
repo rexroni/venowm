@@ -67,14 +67,18 @@ int split_do_split(split_t *split, bool vertical, float fraction){
 void split_do_remove(split_t *split){
     split_t *parent = split->parent;
     split_t *other = parent->frames[split == parent->frames[0]];
-    // parent inherits focus from this split
-    if(g_workspace->focus == split){
-        g_workspace->focus = parent;
-    }
     // parent inherits window from other child
     parent->win_info = other->win_info;
     if(other->win_info){
         parent->win_info->frame = parent;
+    }
+    // parent inherits focus from this split
+    if(g_workspace->focus == split){
+        g_workspace->focus = parent;
+        if(parent->win_info){
+            // give the window focus
+            swc_window_focus(parent->win_info->window->swc_window);
+        }
     }
     // delete both children
     split_free(parent->frames[0]);

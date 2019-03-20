@@ -35,7 +35,7 @@ void handle_new_window(struct swc_window *swc_window){
     if(!window){
         /* oops, no memory.  Close the window.  No handler has been set, so we
            don't need to worry about receiving a window.destroy hook */
-        logmsg("no memoey! closing window");
+        logmsg("no memory! closing window");
         swc_window_close(swc_window);
         return;
     }
