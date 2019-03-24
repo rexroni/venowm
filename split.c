@@ -60,23 +60,33 @@ int split_do_split(split_t *split, bool vertical, float fraction){
 }
 
 /* Workspace should pre-check and not call this on a root frame.  The window in
-   this frame should already have been hidden.  Redrawing any window and fixing
-   focus has to be done at a higher level. */
-void split_do_remove(split_t *split){
+   this frame should already have been hidden.  Redrawing and fixing focus has
+   to be done at a higher level.  The return value is the next frame
+   that would be focused on (though moving focus is not done here). */
+split_t *split_do_remove(split_t *split){
     split_t *parent = split->parent;
     split_t *other = parent->frames[split == parent->frames[0]];
-    // parent inherits window from other child
+    // parent inherits all the goodness that was the other child frame
+    parent->frames[0] = other->frames[0];
+    parent->frames[1] = other->frames[1];
+    parent->isvertical = other->isvertical;
+    parent->fraction = other->fraction;
+    parent->isleaf = other->isleaf;
     parent->win_info = other->win_info;
-    if(other->win_info){
-        parent->win_info->frame = parent;
-    }
-    // delete both children
-    split_free(parent->frames[0]);
-    split_free(parent->frames[1]);
-    // make parent a leaf
-    parent->isleaf = true;
-    parent->frames[0] = NULL;
-    parent->frames[1] = NULL;
+    // fix backrefs that used to point to other child
+    if(parent->win_info) parent->win_info->frame = parent;
+    if(parent->frames[0]) parent->frames[0]->parent = parent;
+    if(parent->frames[1]) parent->frames[1]->parent = parent;
+    // now free the other child
+    other->frames[0] = NULL;
+    other->frames[1] = NULL;
+    split_free(other);
+    // now free fre frame we are removing
+    split_free(split);
+    // find the firstmost leaf of the parent frame
+    split_t *remains = parent;
+    while(!remains->isleaf) remains = remains->frames[0];
+    return remains;
 }
 
 sides_t get_sides(split_t *split){
@@ -181,15 +191,15 @@ static int do_at_each(split_t *split, split_do_cb_t cb, void* data,
     if(split->isleaf) return 0;
     if(split->isvertical){
         float line = t + (b-t)*split->fraction;
-        ret = cb(split->frames[0], data, t, line, l, r);
+        ret = do_at_each(split->frames[0], cb, data, t, line, l, r);
         if(ret) return ret;
-        ret = cb(split->frames[1], data, line, b, l, r);
+        ret = do_at_each(split->frames[1], cb, data, line, b, l, r);
         if(ret) return ret;
     }else{
         float line = l + (r-l)*split->fraction;
-        ret = cb(split->frames[0], data, t, b, l, line);
+        ret = do_at_each(split->frames[0], cb, data, t, b, l, line);
         if(ret) return ret;
-        ret = cb(split->frames[1], data, t, b, line, r);
+        ret = do_at_each(split->frames[1], cb, data, t, b, line, r);
         if(ret) return ret;
     }
     return 0;

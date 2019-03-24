@@ -32,10 +32,10 @@ sides_t get_sides(split_t *split);
 int split_do_split(split_t *split, bool vertical, float fraction);
 
 /* Workspace should pre-check and not call this on a root frame.  The window in
-   this frame should already have been hidden.  Parent split will inherit focus
-   from this child or a window from the other.  Redrawing any window has to be
-   done at a higher level. */
-void split_do_remove(split_t *split);
+   this frame should already have been hidden.  Redrawing and fixing focus has
+   to be done at a higher level.  The return value is the next frame
+   that would be focused on (though moving focus is not done here). */
+split_t *split_do_remove(split_t *split);
 
 // call window_map on a single frame, *split must be a leaf
 void split_map_window(split_t *split, ws_win_info_t *win_info);

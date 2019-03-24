@@ -324,11 +324,9 @@ void workspace_restore(workspace_t *ws){
         int err;
         APPEND_PTR(ws->roots, ws->roots_size, ws->nroots, newroot, err);
         if(err){
-            //split_free(newroot);
-            //return;
-            // Actually, there's no real recovery in this situation
             logmsg("no memory to restore workspace\n");
-            exit(99);
+            // just don't draw on that screen I guess
+            break;
         }
     }
 
@@ -377,17 +375,19 @@ void workspace_hsplit(workspace_t *ws, split_t *split, float fraction){
 
 void workspace_remove_frame(workspace_t *ws, split_t *split){
     // don't do this to root frames
-    split_t *parent = split->parent;
-    if(!parent) return;
+    if(!split->parent) return;
     // remove any window
     workspace_remove_window_from_frame(ws, split, false);
     // remove the frame
-    split_do_remove(split);
-    // redraw any window
-    draw_window(parent->win_info, parent);
+    split_t *remains = split_do_remove(split);
     // fix focus if necessary
     if(ws->focus == split){
-        workspace_focus_frame(ws, parent);
+        workspace_focus_frame(ws, remains);
+    }
+    if(g_workspace == ws){
+        // rerender workspace (recursive redraw necessary in some cases)
+        logmsg("rerender!\n");
+        workspace_rerender(ws);
     }
 }
 
