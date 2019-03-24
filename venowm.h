@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "backend.h"
 #include "khash.h"
 
 #include "logmsg.h"
@@ -12,17 +13,19 @@
 // the main data types.  Some are interdependent.
 
 typedef struct {
-    struct swc_screen *swc_screen;
+    be_screen_t *be_screen;
     // more data to come at a later time
 } screen_t;
 
 typedef struct {
     int refs; // how many workspaces is this window in?
-    struct swc_window *swc_window;
+    be_window_t *be_window;
     // windows may close or die while there are still open refs to this struct
     bool isvalid;
     // pointer to the screen the window is drawn on (or NULL if not drawn)
     screen_t *screen;
+    // pointer to backend
+    backend_t *be;
 } window_t;
 
 // forward declaration of the special workspace hashtable

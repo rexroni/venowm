@@ -1,11 +1,8 @@
-// for setenv:
-#define _POSIX_C_SOURCE 200112L
-
 #include <stdio.h>
 #include <string.h>
 #include <swc.h>
 #include <unistd.h>
-#include <stdlib.h>
+//#include <stdlib.h>
 #include <wayland-server.h>
 #include <xkbcommon/xkbcommon.h>
 #include <signal.h>
@@ -17,9 +14,8 @@
 #include "window.h"
 #include "workspace.h"
 
-// libswc global variables
-static struct wl_display *disp;
-static struct wl_event_loop *event_loop;
+// backend_t, needed for keybindings
+static backend_t *be;
 
 // venowm global variables
 workspace_t *g_workspace;
@@ -32,15 +28,10 @@ workspace_t **g_workspaces;
 size_t g_workspaces_size;
 size_t g_nworkspaces;
 
-static const struct swc_manager manager = {.new_screen=&handle_new_screen,
-                                           .new_window=&handle_new_window};
-
-static void quit(void *data, uint32_t time, uint32_t value, uint32_t state){
+DEFINE_KEY_HANDLER(quit)
     logmsg("called quit\n");
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
-    wl_display_terminate(disp);
-}
+    backend_stop(be);
+FINISH_KEY_HANDLER
 
 static void exec(const char *shcmd){
     logmsg("called exec\n");
@@ -59,102 +50,69 @@ static void exec(const char *shcmd){
     return;
 }
 
-static void exec_vimb(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+DEFINE_KEY_HANDLER(exec_vimb)
     exec("env GDK_BACKEND=wayland vimb");
-}
+FINISH_KEY_HANDLER
 
-static void dohsplit(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+DEFINE_KEY_HANDLER(dohsplit)
     workspace_hsplit(g_workspace, g_workspace->focus, 0.5);
-}
+FINISH_KEY_HANDLER
 
-static void dovsplit(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+DEFINE_KEY_HANDLER(dovsplit)
     workspace_vsplit(g_workspace, g_workspace->focus, 0.5);
-}
+FINISH_KEY_HANDLER
 
-static void goleft(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+DEFINE_KEY_HANDLER(goleft)
     split_t *new = split_move_left(g_workspace->focus);
-    g_workspace->focus = new;
-    swc_window_focus(new->win_info ? new->win_info->window->swc_window : NULL);
-}
+    workspace_focus_frame(g_workspace, new);
+FINISH_KEY_HANDLER
 
-static void goright(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+DEFINE_KEY_HANDLER(goright)
     split_t *new = split_move_right(g_workspace->focus);
-    g_workspace->focus = new;
-    swc_window_focus(new->win_info ? new->win_info->window->swc_window : NULL);
-}
+    workspace_focus_frame(g_workspace, new);
+FINISH_KEY_HANDLER
 
-static void goup(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+DEFINE_KEY_HANDLER(goup)
     split_t *new = split_move_up(g_workspace->focus);
-    g_workspace->focus = new;
-    swc_window_focus(new->win_info ? new->win_info->window->swc_window : NULL);
-}
+    workspace_focus_frame(g_workspace, new);
+FINISH_KEY_HANDLER
 
-static void godown(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+DEFINE_KEY_HANDLER(godown)
     split_t *new = split_move_down(g_workspace->focus);
-    g_workspace->focus = new;
-    swc_window_focus(new->win_info ? new->win_info->window->swc_window : NULL);
-}
+    workspace_focus_frame(g_workspace, new);
+FINISH_KEY_HANDLER
 
-static void remove_frame(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+DEFINE_KEY_HANDLER(remove_frame)
     workspace_remove_frame(g_workspace, g_workspace->focus);
-}
+FINISH_KEY_HANDLER
 
-static void swapleft(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+DEFINE_KEY_HANDLER(swapleft)
     split_t *new = split_move_left(g_workspace->focus);
     workspace_swap_windows_from_frames(g_workspace->focus, new);
-}
+FINISH_KEY_HANDLER
 
-static void swapright(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+DEFINE_KEY_HANDLER(swapright)
     split_t *new = split_move_right(g_workspace->focus);
     workspace_swap_windows_from_frames(g_workspace->focus, new);
-}
+FINISH_KEY_HANDLER
 
-static void swapup(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+DEFINE_KEY_HANDLER(swapup)
     split_t *new = split_move_up(g_workspace->focus);
     workspace_swap_windows_from_frames(g_workspace->focus, new);
-}
+FINISH_KEY_HANDLER
 
-static void swapdown(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+DEFINE_KEY_HANDLER(swapdown)
     split_t *new = split_move_down(g_workspace->focus);
     workspace_swap_windows_from_frames(g_workspace->focus, new);
-}
+FINISH_KEY_HANDLER
 
-static void next_win(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+DEFINE_KEY_HANDLER(next_win)
     workspace_next_hidden_win_at(g_workspace, g_workspace->focus);
-}
+FINISH_KEY_HANDLER
 
-static void prev_win(void *data, uint32_t time, uint32_t value, uint32_t state){
-    (void)data; (void)time; (void)value;
-    if(state != WL_KEYBOARD_KEY_STATE_PRESSED) return;
+DEFINE_KEY_HANDLER(prev_win)
     workspace_prev_hidden_win_at(g_workspace, g_workspace->focus);
-}
-
+FINISH_KEY_HANDLER
 
 void sigchld_handler(int signum){
     logmsg("handled sigchld\n");
@@ -210,35 +168,18 @@ int main(){
         goto cu_workspaces;
     }
 
-    disp = wl_display_create();
-    if(disp == NULL){
-        retval = 2;
+    be = backend_new();
+    if(!be){
         goto cu_screens;
     }
 
-    const char *wl_sock = wl_display_add_socket_auto(disp);
-    if(wl_sock == NULL){
-        retval = 3;
-        goto cu_display;
-    }
-
-    if(setenv("WAYLAND_DISPLAY", wl_sock, 0)){
-        perror("set environment");
-        retval = 4;
-        goto cu_display;
-    }
-
-    if(!swc_initialize(disp, NULL, &manager)){
-        retval = 5;
-        goto cu_display;
-    }
 #define ADD_KEY(xkey, func) \
     if(swc_add_binding(SWC_BINDING_KEY, \
                        SWC_MOD_CTRL, \
                        XKB_KEY_ ## xkey, \
                        &func, NULL)){ \
         retval = 6; \
-        goto cu_swc; \
+        goto cu_backend; \
     }
 #define ADD_KEY_SHIFT(xkey, func) \
     if(swc_add_binding(SWC_BINDING_KEY, \
@@ -246,7 +187,7 @@ int main(){
                        XKB_KEY_ ## xkey, \
                        &func, NULL)){ \
         retval = 6; \
-        goto cu_swc; \
+        goto cu_backend; \
     }
     ADD_KEY(q, quit);
     ADD_KEY(Return, exec_vimb);
@@ -265,22 +206,14 @@ int main(){
     ADD_KEY_SHIFT(space, prev_win);
 #undef ADD_KEY
 
-    event_loop = wl_display_get_event_loop(disp);
-    if(event_loop == NULL){
-        retval = 7;
-        goto cu_swc;
-    }
-
-    wl_display_run(disp);
+    backend_run(be);
 
     logmsg("post run\n");
 
-cu_swc:
-    swc_finalize();
-cu_display:
-    wl_display_destroy(disp);
+cu_backend:
+    backend_free(be);
 cu_screens:
-    // screens *should* be freed by the pre-destroy-screen handler
+    // screens are freed by the pre-destroy-screen handler
     FREE_PTR(g_screens, g_screens_size, g_nscreens);
 cu_workspaces:
     // but we have to manually free workspaces

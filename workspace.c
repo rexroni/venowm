@@ -140,14 +140,10 @@ void workspace_free(workspace_t *ws){
 
 static void redraw_frame(split_t *frame, screen_t *screen,
                          float t, float b, float l, float r){
-    struct swc_window *swc_window = frame->win_info->window->swc_window;
-    // make window visible
-    swc_window_show(swc_window);
     // pull out screen geometry
-    int32_t x = screen->swc_screen->usable_geometry.x;
-    int32_t y = screen->swc_screen->usable_geometry.y;
-    uint32_t w = screen->swc_screen->usable_geometry.width;
-    uint32_t h = screen->swc_screen->usable_geometry.height;
+    int32_t x, y;
+    uint32_t w, h;
+    be_screen_get_geometry(screen->be_screen, &x, &y, &w, &h);
     // build window geometry
     // TODO: decide how to do the offsets to avoid skipping/overlapping pixels
     int32_t xmin = x + frac_of(l, (int)w);
@@ -156,10 +152,10 @@ static void redraw_frame(split_t *frame, screen_t *screen,
     int32_t ymax = y + frac_of(b, (int)h);
     uint32_t wout = xmax - xmin;
     uint32_t hout = ymax - ymin;
-    // logmsg("do_show_window: x:%d y:%d h:%u w:%u\n", xmin, ymin, hout, wout);
-    // set window geometry
-    swc_window_set_position(swc_window, xmin, ymin);
-    swc_window_set_size(swc_window, wout, hout);
+    // make window visible and set the geometry
+    be_window_t *be_window = frame->win_info->window->be_window;
+    be_window_show(be_window);
+    be_window_geometry(be_window, xmin, ymin, wout, hout);
 }
 
 static void draw_window(ws_win_info_t *info, split_t *frame){
@@ -208,7 +204,7 @@ void workspace_add_window(workspace_t *ws, window_t *window, bool map_now){
         // draw this window
         draw_window(info, ws->focus);
         // give the window focus
-        swc_window_focus(window->swc_window);
+        workspace_focus_frame(ws, ws->focus);
     }else{
         // append window to hidden windows
         hidden_append(ws, info);
@@ -245,7 +241,7 @@ void workspace_remove_window_from_frame(workspace_t *ws, split_t *split,
     if(!info) return;
     // hide window if workspace is active
     if(g_workspace == ws){
-        swc_window_hide(info->window->swc_window);
+        be_window_hide(info->window->be_window);
     }
     split->win_info = NULL;
     info->frame = NULL;
@@ -265,7 +261,7 @@ static int hide_cb(split_t *split, void *data,
     // do nothing if this leaf has no window
     if(!split->win_info) return 0;
     // hide window
-    swc_window_hide(split->win_info->window->swc_window);
+    swc_window_hide(split->win_info->window->be_window);
     return 0;
 }
 
@@ -346,6 +342,20 @@ void workspace_restore(workspace_t *ws){
     while(!ws->focus->isleaf) ws->focus = ws->focus->frames[0];
 }
 
+// trigger workspace to update window focus
+void workspace_focus_frame(workspace_t *ws, split_t *frame){
+    // store this frame as the focus of the workspace
+    ws->focus = frame;
+    // focus on the window if this workspace is active
+    if(g_workspace == ws){
+        if(frame->win_info){
+            be_window_focus(frame->win_info->window->be_window);
+        }else{
+            be_window_focus(NULL);
+        }
+    }
+}
+
 static void workspace_do_split(workspace_t *ws, split_t *split, bool vertical,
                                float fraction){
     // first child inherits whatever was in the old split (window, focus)
@@ -375,6 +385,10 @@ void workspace_remove_frame(workspace_t *ws, split_t *split){
     split_do_remove(split);
     // redraw any window
     draw_window(parent->win_info, parent);
+    // fix focus if necessary
+    if(ws->focus == split){
+        workspace_focus_frame(ws, parent);
+    }
 }
 
 void workspace_swap_windows_from_frames(split_t *src, split_t *dst){
@@ -396,9 +410,7 @@ void workspace_next_hidden_win_at(workspace_t *ws, split_t *split){
     workspace_remove_window_from_frame(ws, split, false);
     // place new window
     draw_window(info, split);
-    if(info){
-        swc_window_focus(info->window->swc_window);
-    }
+    workspace_focus_frame(ws, split);
 }
 
 void workspace_prev_hidden_win_at(workspace_t *ws, split_t *split){
@@ -409,7 +421,5 @@ void workspace_prev_hidden_win_at(workspace_t *ws, split_t *split){
     workspace_remove_window_from_frame(ws, split, true);
     // place new window
     draw_window(info, split);
-    if(info){
-        swc_window_focus(info->window->swc_window);
-    }
+    workspace_focus_frame(ws, split);
 }

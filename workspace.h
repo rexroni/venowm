@@ -27,10 +27,13 @@ void workspace_restore(workspace_t *ws);
 // (as long as window mapping/unmapping is idempotent, this is sufficient:)
 #define workspace_rerender workspace_restore
 
+// trigger workspace to update window focus
+void workspace_focus_frame(workspace_t *ws, split_t *split);
+
 void workspace_vsplit(workspace_t *ws, split_t *split, float fraction);
 void workspace_hsplit(workspace_t *ws, split_t *split, float fraction);
 
-void workspace_remove_frame(workspace_t *ws, split_t *split);
+void workspace_remove_frame(workspace_t *ws, split_t *frame);
 
 void workspace_swap_windows_from_frames(split_t *src, split_t *dst);
 

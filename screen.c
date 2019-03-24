@@ -5,13 +5,6 @@
 #include "split.h"
 #include "workspace.h"
 
-static screen_t *screen_new(void){
-    screen_t *out = malloc(sizeof(*out));
-    if(!out) return NULL;
-    *out = (screen_t){0};
-    return out;
-}
-
 void handle_screen_destroy(void *data){
     logmsg("destroy screen\n");
     // dereference data
@@ -21,7 +14,7 @@ void handle_screen_destroy(void *data){
     REMOVE_PTR(g_screens, g_screens_size, g_nscreens, screen, removed);
     (void)removed;
 
-    // libswc owns the swc_screen pointer inside screen_t, we don't free it.
+    // we can drop the be_screen pointer, that gets handled by someone else
 
     // free the screen_t itself
     free(screen);
@@ -30,38 +23,38 @@ void handle_screen_destroy(void *data){
     workspace_rerender(g_workspace);
 }
 
-void handle_screen_geometry_change(void *data){
+void handle_screen_geometry(void *data){
     (void)data;
     // rerender the workspace
     workspace_rerender(g_workspace);
 }
 
-static struct swc_screen_handler screen_handler = {
-    .destroy = handle_screen_destroy,
-    .geometry_changed = handle_screen_geometry_change,
-    .usable_geometry_changed = handle_screen_geometry_change,
-    .entered = NULL,
-};
-
-void handle_new_screen(struct swc_screen *swc_screen){
+int handle_screen_new(be_screen_t *be_screen, void **data){
     logmsg("new screen\n");
-    screen_t *screen = screen_new();
+    screen_t *screen = malloc(sizeof(*screen));
     if(screen == NULL){
         logmsg("stderr: unable to alloc screen!\n");
-        exit(99);
+        return -1;
     }
-    // save the swc pointer
-    screen->swc_screen = swc_screen;
+    *screen = (screen_t){0};
+
     // add screen to global list
     int err;
     APPEND_PTR(g_screens, g_screens_size, g_nscreens, screen, err);
     if(err){
         logmsg("stderr: unable to save screen to list!\n");
-        exit(99);
+        free(screen);
+        return -1;
     }
+
+    // save the backend screen pointer
+    screen->be_screen = be_screen;
 
     // rerender the workspace
     workspace_rerender(g_workspace);
 
-    swc_screen_set_handler(swc_screen, &screen_handler, screen);
+    // return the callback data
+    *data = screen;
+
+    return 0;
 }

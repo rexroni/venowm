@@ -1,6 +1,5 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <swc.h>
 
 #include "split.h"
 #include "window.h"
@@ -61,9 +60,8 @@ int split_do_split(split_t *split, bool vertical, float fraction){
 }
 
 /* Workspace should pre-check and not call this on a root frame.  The window in
-   this frame should already have been hidden.  Parent split will inherit focus
-   from this child or a window from the other.  Redrawing any window has to be
-   done at a higher level. */
+   this frame should already have been hidden.  Redrawing any window and fixing
+   focus has to be done at a higher level. */
 void split_do_remove(split_t *split){
     split_t *parent = split->parent;
     split_t *other = parent->frames[split == parent->frames[0]];
@@ -71,14 +69,6 @@ void split_do_remove(split_t *split){
     parent->win_info = other->win_info;
     if(other->win_info){
         parent->win_info->frame = parent;
-    }
-    // parent inherits focus from this split
-    if(g_workspace->focus == split){
-        g_workspace->focus = parent;
-        if(parent->win_info){
-            // give the window focus
-            swc_window_focus(parent->win_info->window->swc_window);
-        }
     }
     // delete both children
     split_free(parent->frames[0]);
