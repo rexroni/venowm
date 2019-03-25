@@ -21,3 +21,15 @@ void logmsg(const char *fmt, ...){
     }
 }
 
+int vlogmsg(const char *fmt, va_list ap){
+    va_list ap2;
+    va_copy(ap2, ap);
+    int ret = vfprintf(stderr, fmt, ap2);
+    va_end(ap2);
+
+    FILE *f = fopen("logmsg2", "a");
+    if(!f) return ret;
+    vfprintf(f, fmt, ap);
+    fclose(f);
+    return ret;
+}

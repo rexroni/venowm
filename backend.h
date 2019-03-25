@@ -2,6 +2,7 @@
 #define BACKEND_H
 
 #include <stdint.h>
+#include <time.h>
 
 #if !defined(USE_SWC) && !defined(USE_WESTON)
     #error "you must define USE_SWC or USE_WESTON"
@@ -15,6 +16,9 @@
     typedef struct swc_screen be_screen_t;
     typedef struct swc_window be_window_t;
 #elif defined(USE_WESTON)
+    #include <compositor.h>
+    typedef struct be_screen_t be_screen_t;
+    typedef struct be_window_t be_window_t;
 #endif
 
 struct backend_t;
@@ -53,6 +57,21 @@ enum {
 
 #elif defined(USE_WESTON)
 
+    typedef void (*be_key_handler_t)(struct weston_keyboard*,
+                                     const struct timespec*,
+                                     uint32_t,
+                                     void*);
+
+    #define DEFINE_KEY_HANDLER(func_name) \
+        void func_name(struct weston_keyboard *keyboard, \
+                       const struct timespec *timespec, \
+                       uint32_t value, \
+                       void *data){ \
+            (void)keyboard; (void)timespec; (void)value; (void)data;
+
+    #define FINISH_KEY_HANDLER \
+        }
+
 #endif
 
 int be_handle_key(backend_t *be, uint32_t mods, uint32_t key,
@@ -63,7 +82,7 @@ void be_screen_get_geometry(be_screen_t *be_screen,
 
 void be_window_focus(be_window_t *be_window);
 void be_window_hide(be_window_t *be_window);
-void be_window_show(be_window_t *be_window);
+void be_window_show(be_window_t *be_window, be_screen_t *be_screen);
 void be_window_close(be_window_t *be_window);
 void be_window_geometry(be_window_t *be_window,
                         int32_t x, int32_t y, uint32_t w, uint32_t h);

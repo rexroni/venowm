@@ -1,8 +1,7 @@
 #include <stdio.h>
 #include <string.h>
-#include <swc.h>
 #include <unistd.h>
-//#include <stdlib.h>
+#include <stdlib.h>
 #include <wayland-server.h>
 #include <xkbcommon/xkbcommon.h>
 #include <signal.h>
@@ -174,18 +173,16 @@ int main(){
     }
 
 #define ADD_KEY(xkey, func) \
-    if(swc_add_binding(SWC_BINDING_KEY, \
-                       SWC_MOD_CTRL, \
-                       XKB_KEY_ ## xkey, \
-                       &func, NULL)){ \
+    if(be_handle_key(be, MOD_CTRL, \
+                     XKB_KEY_ ## xkey, \
+                     &func, NULL)){ \
         retval = 6; \
         goto cu_backend; \
     }
 #define ADD_KEY_SHIFT(xkey, func) \
-    if(swc_add_binding(SWC_BINDING_KEY, \
-                       SWC_MOD_CTRL | SWC_MOD_SHIFT, \
-                       XKB_KEY_ ## xkey, \
-                       &func, NULL)){ \
+    if(be_handle_key(be, MOD_CTRL | MOD_SHIFT, \
+                     XKB_KEY_ ## xkey, \
+                     &func, NULL)){ \
         retval = 6; \
         goto cu_backend; \
     }

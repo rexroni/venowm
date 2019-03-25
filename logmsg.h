@@ -5,4 +5,6 @@
 
 void logmsg(const char *fmt, ...);
 
+int vlogmsg(const char *fmt, va_list args);
+
 #endif // LOGMSG_H

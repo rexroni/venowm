@@ -154,7 +154,7 @@ static void redraw_frame(split_t *frame, screen_t *screen,
     uint32_t hout = ymax - ymin;
     // make window visible and set the geometry
     be_window_t *be_window = frame->win_info->window->be_window;
-    be_window_show(be_window);
+    be_window_show(be_window, screen->be_screen);
     be_window_geometry(be_window, xmin, ymin, wout, hout);
 }
 
@@ -261,7 +261,7 @@ static int hide_cb(split_t *split, void *data,
     // do nothing if this leaf has no window
     if(!split->win_info) return 0;
     // hide window
-    swc_window_hide(split->win_info->window->be_window);
+    be_window_hide(split->win_info->window->be_window);
     return 0;
 }
 
