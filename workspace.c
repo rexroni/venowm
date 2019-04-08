@@ -154,8 +154,9 @@ static void redraw_frame(split_t *frame, screen_t *screen,
     uint32_t hout = ymax - ymin;
     // make window visible and set the geometry
     be_window_t *be_window = frame->win_info->window->be_window;
-    be_window_show(be_window, screen->be_screen);
     be_window_geometry(be_window, xmin, ymin, wout, hout);
+    logmsg("x,y = %d,%d  w,h = %u,%u\n", xmin, ymin, wout, hout);
+    be_window_show(be_window, screen->be_screen);
 }
 
 static void draw_window(ws_win_info_t *info, split_t *frame){

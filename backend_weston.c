@@ -61,7 +61,9 @@ struct be_screen_t {
 };
 
 struct be_window_t {
+    // the surface backing this window
     struct weston_desktop_surface *surface;
+    // the view of the window (currently only support a single one)
     struct weston_view *view;
     void *cb_data;
     int32_t x;
@@ -71,6 +73,7 @@ struct be_window_t {
     bool dirty_geometry;
     // set when added to view_list, cleared after view unmap
     bool linked;
+    struct wl_listener commit_listener;
 };
 
 static backend_t *g_be;
@@ -84,10 +87,13 @@ struct backend_t {
     struct weston_x11_backend_config weston_x11_be_conf;
     struct weston_layer layer_normal;
     struct weston_layer layer_bg;
+    struct weston_layer layer_minimized;
     struct weston_surface *bg_srfc;
     struct weston_view *bg_view;
     struct weston_desktop *desktop;
     const struct weston_windowed_output_api *output_api;
+    struct weston_seat *seat;
+    struct weston_desktop_surface *last_focused_surface;
     // for debug ////////////////////////////
 	struct wl_listener destroy_signal;
 	struct wl_listener create_surface_signal;
@@ -180,7 +186,7 @@ static void beh_session_signal(struct wl_listener *l, void *data){
 }
 static bool heads_changed_once = false;
 static void beh_heads_changed_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
+    (void)data;
     logmsg("got heads_changed_signal\n");
     if(heads_changed_once) return;
     heads_changed_once = true;
@@ -245,6 +251,18 @@ static void backend_handle_compositor_exit(struct weston_compositor *c){
     wl_display_terminate(be->disp);
 }
 
+static void backend_handle_surface_commit(struct wl_listener *l, void *data){
+    be_window_t *be_window = wl_container_of(l, be_window, commit_listener);
+    // dereference the surface that did the commit
+    struct weston_surface *srfc = data;
+
+    // if the view is linked, damage the surface
+    if(be_window->linked){
+        weston_surface_damage(srfc);
+        weston_compositor_schedule_repaint(g_be->compositor);
+    }
+}
+
 static void backend_handle_surface_new(
         struct weston_desktop_surface *surface, void *user_data){
     logmsg("backend_handle_surface_new()\n");
@@ -261,15 +279,30 @@ static void backend_handle_surface_new(
     be_window->view = weston_desktop_surface_create_view(surface);
     if(!be_window->view) goto fail_malloc;
 
+    // don't show the window just yet
+    weston_layer_entry_insert(&g_be->layer_minimized.view_list,
+                              &be_window->view->layer_link);
+    be_window->linked = false;
+
     // call venowm's new window handler and store the cb_data
     if(handle_window_new(be_window, &be_window->cb_data)) goto fail_view;
+
+    ////// No errors after this point
+
+    weston_desktop_surface_set_fullscreen(surface, true);
 
     // store this be_window as the user_data for the surface
     weston_desktop_surface_set_user_data(surface, be_window);
 
+    // add a listener to the commit signal for the surface
+    be_window->commit_listener.notify = backend_handle_surface_commit;
+    struct weston_surface *srfc = weston_desktop_surface_get_surface(surface);
+    wl_signal_add(&srfc->commit_signal, &be_window->commit_listener);
+
     return;
 
 fail_view:
+    weston_desktop_surface_unlink_view(be_window->view);
     weston_view_destroy(be_window->view);
 fail_malloc:
     free(be_window);
@@ -283,6 +316,11 @@ static void backend_handle_surface_destroy(
     logmsg("backend_handle_surface_destroy()\n");
     // the callback's user_data is the backend_t
     (void)user_data;
+
+    if(surface == g_be->last_focused_surface){
+        g_be->last_focused_surface = NULL;
+    }
+
     // the surface's user_data is the be_window_t
     be_window_t *be_window = weston_desktop_surface_get_user_data(surface);
     if(!be_window){
@@ -294,6 +332,7 @@ static void backend_handle_surface_destroy(
     handle_window_destroy(be_window->cb_data);
 
     // cleanup
+    weston_desktop_surface_unlink_view(be_window->view);
     weston_view_destroy(be_window->view);
     free(be_window);
 }
@@ -410,6 +449,39 @@ backend_t *backend_new(void){
     weston_layer_init(&be->layer_bg, be->compositor);
     weston_layer_set_position(&be->layer_bg, WESTON_LAYER_POSITION_BACKGROUND);
 
+    // minimized layer
+    weston_layer_init(&be->layer_minimized, be->compositor);
+    weston_layer_set_position(&be->layer_minimized,
+                              WESTON_LAYER_POSITION_HIDDEN);
+
+    // make a blank background
+    be->bg_srfc = weston_surface_create(be->compositor);
+    if(!be->bg_srfc){
+        goto cu_desktop;
+    }
+    weston_surface_set_size(be->bg_srfc, 8192, 8192);
+    weston_surface_set_color(be->bg_srfc, 0.0, 0.0, 0.5, 1);
+
+    // a view of the background
+    be->bg_view = weston_view_create(be->bg_srfc);
+    if(!be->bg_srfc){
+        goto cu_bg_srfc;
+    }
+    weston_layer_entry_insert(&be->layer_bg.view_list,
+                              &be->bg_view->layer_link);
+
+    // get the first seat from the compositor
+    be->seat = NULL;
+    wl_list_for_each(be->seat, &be->compositor->seat_list, link){
+        break;
+    }
+
+    // damage surface
+    weston_surface_damage(be->bg_srfc);
+
+    be->last_focused_surface = NULL;
+
+
 // for debug ////////////////////////////
 	be->destroy_signal.notify = beh_destroy_signal;
     wl_signal_add(&be->compositor->destroy_signal, &be->destroy_signal);
@@ -448,26 +520,6 @@ backend_t *backend_new(void){
 	be->heads_changed_signal.notify = beh_heads_changed_signal;
     wl_signal_add(&be->compositor->heads_changed_signal, &be->heads_changed_signal);
 // end for-debug ////////////////////////////
-
-
-    // make a blank background
-    be->bg_srfc = weston_surface_create(be->compositor);
-    if(!be->bg_srfc){
-        goto cu_desktop;
-    }
-    weston_surface_set_size(be->bg_srfc, 8096, 8096);
-    weston_surface_set_color(be->bg_srfc, 0.0, 0.0, 0.5, 1);
-
-    // a view of the background
-    be->bg_view = weston_view_create(be->bg_srfc);
-    if(!be->bg_srfc){
-        goto cu_bg_srfc;
-    }
-    weston_layer_entry_insert(&be->layer_bg.view_list,
-                              &be->bg_view->layer_link);
-
-    // damage surface
-    weston_surface_damage(be->bg_srfc);
 
     return be;
 
@@ -509,7 +561,6 @@ void backend_stop(backend_t *be){
 
 int be_handle_key(backend_t *be, uint32_t mods, uint32_t key,
                   be_key_handler_t handler, void *data){
-    (void)be; (void)mods; (void)key; (void)handler; (void)data;
     struct weston_binding *binding;
     binding = weston_compositor_add_key_binding(be->compositor, key, mods,
                                                 handler, data);
@@ -518,21 +569,38 @@ int be_handle_key(backend_t *be, uint32_t mods, uint32_t key,
 
 void be_screen_get_geometry(be_screen_t *be_screen,
                             int32_t *x, int32_t *y, uint32_t *w, uint32_t *h){
-    (void)be_screen; (void)x; (void)y; (void)w; (void)h;
+    *x = be_screen->output->x;
+    *y = be_screen->output->y;
+    *w = (uint32_t)be_screen->output->width;
+    *h = (uint32_t)be_screen->output->height;
 }
 
 void be_window_focus(be_window_t *be_window){
-    logmsg("be_window_focus()\n");
-    (void)be_window;
-    // TODO: what to do when be_window is NULL?
-    weston_desktop_surface_set_activated(be_window->surface, true);
+    logmsg("be_window_focus(%p)\n", be_window);
+    // un-focus the previously-focused surface
+    if(g_be->last_focused_surface){
+        weston_desktop_surface_set_activated(
+                g_be->last_focused_surface, false);
+    }
+    if(be_window){
+        // focus the this next surface
+        weston_desktop_surface_set_activated(be_window->surface, true);
+        struct weston_surface *srfc;
+        srfc = weston_desktop_surface_get_surface(be_window->surface);
+        weston_keyboard_set_focus(weston_seat_get_keyboard(g_be->seat), srfc);
+        g_be->last_focused_surface = be_window->surface;
+    }else{
+        // focus no surface
+        weston_keyboard_set_focus(weston_seat_get_keyboard(g_be->seat), NULL);
+        g_be->last_focused_surface = NULL;
+    }
 }
 
 void be_window_hide(be_window_t *be_window){
     logmsg("be_window_hide()\n");
-    struct weston_surface *surface;
-    surface = weston_desktop_surface_get_surface(be_window->surface);
-    weston_surface_unmap(surface);
+    struct weston_surface *srfc;
+    srfc = weston_desktop_surface_get_surface(be_window->surface);
+    weston_surface_unmap(srfc);
 }
 
 void be_window_show(be_window_t *be_window, be_screen_t *be_screen){
@@ -541,20 +609,25 @@ void be_window_show(be_window_t *be_window, be_screen_t *be_screen){
     if(be_window->linked) return;
     logmsg("be_window_show...()\n");
     weston_view_set_output(be_window->view, be_screen->output);
-    //weston_view_move_to_plane(be_window->view, &g_be->compositor->primary_plane);
-    wl_list_insert(&g_be->compositor->view_list, &be_window->view->link);
-    //weston_layer_entry_insert(&g_be->layer_normal.view_list, &be_window->view->layer_link);
+    // remove from existing layer (should be minimized)
+    weston_layer_entry_remove(&be_window->view->layer_link);
+    // insert into new layer (the normal layer)
+    weston_layer_entry_insert(&g_be->layer_normal.view_list,
+                              &be_window->view->layer_link);
     be_window->linked = true;
     // fix geometry of things which had their geometry set while they were unmapped
     if(!be_window->dirty_geometry) return;
     logmsg("be_window_show......()\n");
-    weston_view_set_position(be_window->view, be_window->x, be_window->y);
     weston_desktop_surface_set_size(be_window->surface, be_window->w, be_window->h);
+    weston_view_set_position(be_window->view, be_window->x, be_window->y);
+    // Is this necessay?  Found it above struct weston_view
+    // weston_view_geometry_dirty(be_window->view);
     be_window->dirty_geometry = false;
     // mark damage
     struct weston_surface *surface =
         weston_desktop_surface_get_surface(be_window->surface);
     weston_surface_damage(surface);
+    //weston_compositor_schedule_repaint(g_be->compositor);
 }
 
 void be_window_close(be_window_t *be_window){
@@ -573,11 +646,12 @@ void be_window_geometry(be_window_t *be_window,
     // don't actually set the geometry of unlinked windows
     if(!be_window->linked) return;
     logmsg("be_window_geometry...()\n");
-    weston_view_set_position(be_window->view, x, y);
     weston_desktop_surface_set_size(be_window->surface, w, h);
+    weston_view_set_position(be_window->view, x, y);
     be_window->dirty_geometry = false;
     // mark damage
     struct weston_surface *surface =
         weston_desktop_surface_get_surface(be_window->surface);
     weston_surface_damage(surface);
+    weston_compositor_schedule_repaint(g_be->compositor);
 }

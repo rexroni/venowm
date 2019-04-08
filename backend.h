@@ -67,7 +67,8 @@ enum {
                        const struct timespec *timespec, \
                        uint32_t value, \
                        void *data){ \
-            (void)keyboard; (void)timespec; (void)value; (void)data;
+            (void)keyboard; (void)timespec; (void)value; (void)data; \
+            logmsg("handling key!!\n");
 
     #define FINISH_KEY_HANDLER \
         }

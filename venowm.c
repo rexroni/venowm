@@ -3,9 +3,11 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <wayland-server.h>
-#include <xkbcommon/xkbcommon.h>
 #include <signal.h>
 #include <wait.h>
+
+// #include <xkbcommon/xkbcommon.h>
+#include <linux/input.h>
 
 #include "venowm.h"
 #include "split.h"
@@ -27,11 +29,6 @@ workspace_t **g_workspaces;
 size_t g_workspaces_size;
 size_t g_nworkspaces;
 
-DEFINE_KEY_HANDLER(quit)
-    logmsg("called quit\n");
-    backend_stop(be);
-FINISH_KEY_HANDLER
-
 static void exec(const char *shcmd){
     logmsg("called exec\n");
     pid_t pid = fork();
@@ -48,6 +45,11 @@ static void exec(const char *shcmd){
     // parent continues with whatever it was doing
     return;
 }
+
+DEFINE_KEY_HANDLER(quit)
+    logmsg("called quit\n");
+    backend_stop(be);
+FINISH_KEY_HANDLER
 
 DEFINE_KEY_HANDLER(exec_vimb)
     exec("env GDK_BACKEND=wayland vimb");
@@ -174,33 +176,33 @@ int main(){
 
 #define ADD_KEY(xkey, func) \
     if(be_handle_key(be, MOD_CTRL, \
-                     XKB_KEY_ ## xkey, \
+                     KEY_ ## xkey, \
                      &func, NULL)){ \
         retval = 6; \
         goto cu_backend; \
     }
 #define ADD_KEY_SHIFT(xkey, func) \
     if(be_handle_key(be, MOD_CTRL | MOD_SHIFT, \
-                     XKB_KEY_ ## xkey, \
+                     KEY_ ## xkey, \
                      &func, NULL)){ \
         retval = 6; \
         goto cu_backend; \
     }
-    ADD_KEY(q, quit);
-    ADD_KEY(Return, exec_vimb);
-    ADD_KEY(backslash, dohsplit);
-    ADD_KEY(minus, dovsplit);
-    ADD_KEY(h, goleft);
-    ADD_KEY(j, godown);
-    ADD_KEY(k, goup);
-    ADD_KEY(l, goright);
-    ADD_KEY(y, remove_frame);
-    ADD_KEY_SHIFT(h, swapleft);
-    ADD_KEY_SHIFT(j, swapdown);
-    ADD_KEY_SHIFT(k, swapup);
-    ADD_KEY_SHIFT(l, swapright);
-    ADD_KEY(space, next_win);
-    ADD_KEY_SHIFT(space, prev_win);
+    ADD_KEY(Q, quit);
+    ADD_KEY(ENTER, exec_vimb);
+    ADD_KEY(BACKSLASH, dohsplit);
+    ADD_KEY(MINUS, dovsplit);
+    ADD_KEY(H, goleft);
+    ADD_KEY(J, godown);
+    ADD_KEY(K, goup);
+    ADD_KEY(L, goright);
+    ADD_KEY(Y, remove_frame);
+    ADD_KEY_SHIFT(H, swapleft);
+    ADD_KEY_SHIFT(J, swapdown);
+    ADD_KEY_SHIFT(K, swapup);
+    ADD_KEY_SHIFT(L, swapright);
+    ADD_KEY(SPACE, next_win);
+    ADD_KEY_SHIFT(SPACE, prev_win);
 #undef ADD_KEY
 
     backend_run(be);

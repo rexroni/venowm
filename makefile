@@ -19,7 +19,9 @@ CFLAGS+=`pkg-config --cflags $(BACKEND_PKG)`
 LDFLAGS+=`pkg-config --libs $(BACKEND_PKG)`
 LDFLAGS+=-lm
 
-all: venowm test_split
+all: venowm test_split mini
+
+mini: logmsg.o
 
 test_split: split.o logmsg.o
 
