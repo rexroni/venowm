@@ -83,6 +83,7 @@ struct backend_t {
     struct wl_display *disp;
     struct wl_listener new_output_listener;
     struct wl_listener new_surface_listener;
+	struct wl_listener heads_changed_listener;
     struct weston_drm_backend_config weston_drm_be_conf;
     struct weston_x11_backend_config weston_x11_be_conf;
     struct weston_layer layer_normal;
@@ -94,104 +95,16 @@ struct backend_t {
     const struct weston_windowed_output_api *output_api;
     struct weston_seat *seat;
     struct weston_desktop_surface *last_focused_surface;
-    // for debug ////////////////////////////
-	struct wl_listener destroy_signal;
-	struct wl_listener create_surface_signal;
-	struct wl_listener activate_signal;
-	struct wl_listener transform_signal;
-	struct wl_listener kill_signal;
-	struct wl_listener idle_signal;
-	struct wl_listener wake_signal;
-	struct wl_listener show_input_panel_signal;
-	struct wl_listener hide_input_panel_signal;
-	struct wl_listener update_input_panel_signal;
-	struct wl_listener seat_created_signal;
-	struct wl_listener output_created_signal;
-	struct wl_listener output_destroyed_signal;
-	struct wl_listener output_moved_signal;
-	struct wl_listener output_resized_signal;
-	struct wl_listener output_heads_changed_signal;
-	struct wl_listener session_signal;
-	struct wl_listener heads_changed_signal;
-    // end for-debug ////////////////////////////
 };
-// for debug ////////////////////////////
-static void beh_destroy_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got destroy_signal\n");
-}
-static void beh_create_surface_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got create_surface_signal\n");
-}
-static void beh_activate_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got activate_signal\n");
-}
-static void beh_transform_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got transform_signal\n");
-}
-static void beh_kill_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got kill_signal\n");
-}
-static void beh_idle_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got idle_signal\n");
-}
-static void beh_wake_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got wake_signal\n");
-}
-static void beh_show_input_panel_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got show_input_panel_signal\n");
-}
-static void beh_hide_input_panel_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got hide_input_panel_signal\n");
-}
-static void beh_update_input_panel_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got update_input_panel_signal\n");
-}
-static void beh_seat_created_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got seat_created_signal\n");
-}
-static void beh_output_created_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got output_created_signal\n");
-}
-static void beh_output_destroyed_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got output_destroyed_signal\n");
-}
-static void beh_output_moved_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got output_moved_signal\n");
-}
-static void beh_output_resized_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got output_resized_signal\n");
-}
-static void beh_output_heads_changed_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got output_heads_changed_signal\n");
-}
-static void beh_session_signal(struct wl_listener *l, void *data){
-    (void)l; (void)data;
-    logmsg("got session_signal\n");
-}
+
 static bool heads_changed_once = false;
-static void beh_heads_changed_signal(struct wl_listener *l, void *data){
+static void handle_heads_changed(struct wl_listener *l, void *data){
     (void)data;
     logmsg("got heads_changed_signal\n");
     if(heads_changed_once) return;
     heads_changed_once = true;
     // create an output with the head
-    backend_t *be = wl_container_of(l, be, heads_changed_signal);
+    backend_t *be = wl_container_of(l, be, heads_changed_listener);
     struct weston_head *head;
     wl_list_for_each(head, &be->compositor->head_list, compositor_link){
         logmsg("head!\n");
@@ -204,7 +117,6 @@ static void beh_heads_changed_signal(struct wl_listener *l, void *data){
     }
 
 }
-// end for-debug ////////////////////////////
 
 static void backend_handle_output_destroyed(struct wl_listener *l, void *data){
     (void)data;
@@ -423,6 +335,10 @@ backend_t *backend_new(void){
 
     /////////////////////////////
 
+    // listen for changes to heads
+	be->heads_changed_listener.notify = handle_heads_changed;
+    wl_signal_add(&be->compositor->heads_changed_signal, &be->heads_changed_listener);
+
     // listen for created outputs
     be->new_output_listener.notify = backend_handle_output_new;
     wl_signal_add(&be->compositor->output_created_signal,
@@ -480,46 +396,6 @@ backend_t *backend_new(void){
     weston_surface_damage(be->bg_srfc);
 
     be->last_focused_surface = NULL;
-
-
-// for debug ////////////////////////////
-	be->destroy_signal.notify = beh_destroy_signal;
-    wl_signal_add(&be->compositor->destroy_signal, &be->destroy_signal);
-	be->create_surface_signal.notify = beh_create_surface_signal;
-    wl_signal_add(&be->compositor->create_surface_signal, &be->create_surface_signal);
-	be->activate_signal.notify = beh_activate_signal;
-    wl_signal_add(&be->compositor->activate_signal, &be->activate_signal);
-	be->transform_signal.notify = beh_transform_signal;
-    wl_signal_add(&be->compositor->transform_signal, &be->transform_signal);
-	be->kill_signal.notify = beh_kill_signal;
-    wl_signal_add(&be->compositor->kill_signal, &be->kill_signal);
-	be->idle_signal.notify = beh_idle_signal;
-    wl_signal_add(&be->compositor->idle_signal, &be->idle_signal);
-	be->wake_signal.notify = beh_wake_signal;
-    wl_signal_add(&be->compositor->wake_signal, &be->wake_signal);
-	be->show_input_panel_signal.notify = beh_show_input_panel_signal;
-    wl_signal_add(&be->compositor->show_input_panel_signal, &be->show_input_panel_signal);
-	be->hide_input_panel_signal.notify = beh_hide_input_panel_signal;
-    wl_signal_add(&be->compositor->hide_input_panel_signal, &be->hide_input_panel_signal);
-	be->update_input_panel_signal.notify = beh_update_input_panel_signal;
-    wl_signal_add(&be->compositor->update_input_panel_signal, &be->update_input_panel_signal);
-	be->seat_created_signal.notify = beh_seat_created_signal;
-    wl_signal_add(&be->compositor->seat_created_signal, &be->seat_created_signal);
-	be->output_created_signal.notify = beh_output_created_signal;
-    wl_signal_add(&be->compositor->output_created_signal, &be->output_created_signal);
-	be->output_destroyed_signal.notify = beh_output_destroyed_signal;
-    wl_signal_add(&be->compositor->output_destroyed_signal, &be->output_destroyed_signal);
-	be->output_moved_signal.notify = beh_output_moved_signal;
-    wl_signal_add(&be->compositor->output_moved_signal, &be->output_moved_signal);
-	be->output_resized_signal.notify = beh_output_resized_signal;
-    wl_signal_add(&be->compositor->output_resized_signal, &be->output_resized_signal);
-	be->output_heads_changed_signal.notify = beh_output_heads_changed_signal;
-    wl_signal_add(&be->compositor->output_heads_changed_signal, &be->output_heads_changed_signal);
-	be->session_signal.notify = beh_session_signal;
-    wl_signal_add(&be->compositor->session_signal, &be->session_signal);
-	be->heads_changed_signal.notify = beh_heads_changed_signal;
-    wl_signal_add(&be->compositor->heads_changed_signal, &be->heads_changed_signal);
-// end for-debug ////////////////////////////
 
     return be;
 
@@ -598,9 +474,23 @@ void be_window_focus(be_window_t *be_window){
 
 void be_window_hide(be_window_t *be_window){
     logmsg("be_window_hide()\n");
+    // don't mess with already-unmapped functions
+    if(!be_window->linked) return;
+    be_window->linked = false;
+    // tell the application it's not activated
+    weston_desktop_surface_set_activated(be_window->surface, false);
+    // remove keyboard focus, if this surface had the focus
     struct weston_surface *srfc;
     srfc = weston_desktop_surface_get_surface(be_window->surface);
-    weston_surface_unmap(srfc);
+    struct weston_keyboard *keyboard = weston_seat_get_keyboard(g_be->seat);
+    if(keyboard->focus == srfc){
+        weston_keyboard_set_focus(weston_seat_get_keyboard(g_be->seat), NULL);
+    }
+    // remove from existing layer (should be normal layer)
+    weston_layer_entry_remove(&be_window->view->layer_link);
+    // insert into minimized layer
+    weston_layer_entry_insert(&g_be->layer_minimized.view_list,
+                              &be_window->view->layer_link);
 }
 
 void be_window_show(be_window_t *be_window, be_screen_t *be_screen){
