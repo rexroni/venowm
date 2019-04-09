@@ -22,7 +22,7 @@ Pronounced like "venom", and definitely *not* pronounced like "vee-no window man
 
 1. Install dependencies:
 
-    - [libswc](https://github.com/michaelforney/swc)
+    - `libweston`, possibly included in a `weston` package or something
 
     - `libwayland` and `libwayland-server`.
 
@@ -30,9 +30,9 @@ Pronounced like "venom", and definitely *not* pronounced like "vee-no window man
 
 1. Run `make`
 
-1. Execute from a console (not X) with `swc-launch ./venowm`.
+1. Execute under X11 with `./venowm` (hardware backend support is upcoming).
 
-1. Press "ctrl-q" to quit.
+1. Launch more windows (currently hard-coded to launch `vimb`) with "ctrl-enter".  Split the screen with "ctrl-minus" or "control-backslash".  Move between frames with "ctrl-h/j/k/l".  Drag windows around with "ctrl-shift-h/j/k/l".  Close frames with "ctrl-y".  Show hidden windows with "ctrl-space".  Press "ctrl-q" to quit.
 
 ## License
 
