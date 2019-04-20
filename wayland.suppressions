@@ -1,0 +1,58 @@
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Addr4
+   ...
+   obj:/usr/lib/libEGL_mesa.so.0.0.0
+   ...
+   obj:/usr/bin/weston
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Addr8
+   ...
+   obj:/usr/lib/libEGL_mesa.so.0.0.0
+   ...
+   obj:/usr/bin/weston
+}
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Addr1
+   ...
+   obj:/usr/lib/libweston-5/gl-renderer.so
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Addr4
+   ...
+   obj:/usr/lib/libweston-5/gl-renderer.so
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Addr8
+   ...
+   obj:/usr/lib/libweston-5/gl-renderer.so
+}
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Addr2
+   ...
+   obj:/usr/lib/libwayland-server.so.0.1.0
+}
+
+
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Addr4
+   ...
+   obj:/usr/lib/dri/i965_dri.so
+}
+{
+   <insert_a_suppression_name_here>
+   Memcheck:Addr8
+   ...
+   obj:/usr/lib/dri/i965_dri.so
+}

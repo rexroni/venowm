@@ -1,3 +1,4 @@
 *.o
-venowm
+venowm_shell_plugin.so
 test_split
+logmsg

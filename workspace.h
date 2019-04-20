@@ -5,7 +5,7 @@
 
 #include "venowm.h"
 
-workspace_t *workspace_new(void);
+workspace_t *workspace_new(backend_t *be);
 
 // frees all of its roots, downrefs all of its windows
 void workspace_free(workspace_t *workspace);

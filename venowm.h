@@ -87,6 +87,8 @@ typedef struct {
     // a queue of windows associated with the workspace but which are hidden
     ws_win_info_t *hidden_first;
     ws_win_info_t *hidden_last;
+    // pointer to backend
+    backend_t *be;
 } workspace_t;
 
 // global variables

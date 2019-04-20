@@ -4,27 +4,30 @@
 #include "workspace.h"
 #include "split.h"
 #include "window.h"
+#include "backend.h"
 
-workspace_t *workspace_new(void){
-    workspace_t *out = malloc(sizeof(*out));
-    if(!out) return NULL;
+workspace_t *workspace_new(backend_t *be){
+    workspace_t *ws = malloc(sizeof(*ws));
+    if(!ws) return NULL;
 
-    out->windows = kh_init(wswl);
-    if(!out) goto cu_malloc;
+    ws->windows = kh_init(wswl);
+    if(!ws) goto cu_malloc;
 
     // no hidden windows yet
-    out->hidden_first = NULL;
-    out->hidden_last = NULL;
+    ws->hidden_first = NULL;
+    ws->hidden_last = NULL;
 
     int err;
-    INIT_PTR(out->roots, out->roots_size, out->nroots, 8, err);
+    INIT_PTR(ws->roots, ws->roots_size, ws->nroots, 8, err);
     if(err) goto cu_windows;
-    return out;
+
+    ws->be = be;
+    return ws;
 
 cu_windows:
-    kh_destroy(wswl, out->windows);
+    kh_destroy(wswl, ws->windows);
 cu_malloc:
-    free(out);
+    free(ws);
     return NULL;
 }
 
@@ -350,7 +353,7 @@ void workspace_focus_frame(workspace_t *ws, split_t *frame){
         if(frame->win_info){
             be_window_focus(frame->win_info->window->be_window);
         }else{
-            be_window_focus(NULL);
+            be_unfocus_all(ws->be);
         }
     }
 }
