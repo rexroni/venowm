@@ -144,7 +144,7 @@ static be_screen_t *be_screen_new(backend_t *be, struct weston_output *output){
 
     // create a window
     logmsg("execing!\n");
-    exec("env GDK_BACKEND=wayland vimb");
+    exec("weston-terminal");
 
     return be_screen;
 }

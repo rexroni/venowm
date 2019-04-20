@@ -43,7 +43,7 @@ DEFINE_KEY_HANDLER(quit)
 FINISH_KEY_HANDLER
 
 DEFINE_KEY_HANDLER(exec_vimb)
-    exec("env GDK_BACKEND=wayland vimb");
+    exec("weston-terminal");
 FINISH_KEY_HANDLER
 
 DEFINE_KEY_HANDLER(dohsplit)
