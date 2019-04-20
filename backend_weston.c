@@ -82,7 +82,6 @@ struct backend_t {
     struct weston_compositor *compositor;
     struct wl_display *disp;
     struct wl_listener new_output_listener;
-    struct wl_listener new_surface_listener;
 	struct wl_listener heads_changed_listener;
     struct weston_drm_backend_config weston_drm_be_conf;
     struct weston_x11_backend_config weston_x11_be_conf;
@@ -125,6 +124,8 @@ static void backend_handle_output_destroyed(struct wl_listener *l, void *data){
 
     // call venowm's destroy screen handler
     handle_screen_destroy(be_screen->cb_data);
+
+    wl_list_remove(&be_screen->output_destroyed.link);
 
     free(be_screen);
 }
@@ -474,7 +475,7 @@ void be_window_focus(be_window_t *be_window){
 
 void be_window_hide(be_window_t *be_window){
     logmsg("be_window_hide()\n");
-    // don't mess with already-unmapped functions
+    // don't mess with already-unmapped windows
     if(!be_window->linked) return;
     be_window->linked = false;
     // tell the application it's not activated
@@ -484,7 +485,7 @@ void be_window_hide(be_window_t *be_window){
     srfc = weston_desktop_surface_get_surface(be_window->surface);
     struct weston_keyboard *keyboard = weston_seat_get_keyboard(g_be->seat);
     if(keyboard->focus == srfc){
-        weston_keyboard_set_focus(weston_seat_get_keyboard(g_be->seat), NULL);
+        weston_keyboard_set_focus(keyboard, NULL);
     }
     // remove from existing layer (should be normal layer)
     weston_layer_entry_remove(&be_window->view->layer_link);
@@ -495,7 +496,7 @@ void be_window_hide(be_window_t *be_window){
 
 void be_window_show(be_window_t *be_window, be_screen_t *be_screen){
     logmsg("be_window_show()\n");
-    // don't map already-mapped functions
+    // don't map already-mapped windows
     if(be_window->linked) return;
     logmsg("be_window_show...()\n");
     weston_view_set_output(be_window->view, be_screen->output);
@@ -510,7 +511,7 @@ void be_window_show(be_window_t *be_window, be_screen_t *be_screen){
     logmsg("be_window_show......()\n");
     weston_desktop_surface_set_size(be_window->surface, be_window->w, be_window->h);
     weston_view_set_position(be_window->view, be_window->x, be_window->y);
-    // Is this necessay?  Found it above struct weston_view
+    // Is this necessary?  Found it above struct weston_view
     // weston_view_geometry_dirty(be_window->view);
     be_window->dirty_geometry = false;
     // mark damage
