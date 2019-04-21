@@ -3,7 +3,7 @@ LD=ld
 
 # Hm... the libweston package is versioned explicitly but weston is not.  This
 # way of doing things is not safe.
-PKGS=weston libweston-5 libweston-desktop-5 wayland-server
+PKGS=weston libweston-6 libweston-desktop-6 wayland-server
 
 CFLAGS+=-g
 CFLAGS+=-Wall -Wextra -std=c11
