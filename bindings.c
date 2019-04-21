@@ -35,6 +35,7 @@ static void exec(const char *shcmd){
         (void)be;
 
 #define FINISH_KEY_HANDLER \
+        be_repaint(be); \
     }
 
 DEFINE_KEY_HANDLER(quit)
@@ -42,7 +43,7 @@ DEFINE_KEY_HANDLER(quit)
     backend_stop(be);
 FINISH_KEY_HANDLER
 
-DEFINE_KEY_HANDLER(exec_vimb)
+DEFINE_KEY_HANDLER(exec_weston_terminal)
     exec("weston-terminal");
 FINISH_KEY_HANDLER
 
@@ -110,19 +111,19 @@ FINISH_KEY_HANDLER
 #define ADD_KEY(xkey, func) \
     if(be_handle_key(be, MOD_CTRL, \
                      KEY_ ## xkey, \
-                     &func, NULL)){ \
+                     &func, be)){ \
         goto fail; \
     }
 #define ADD_KEY_SHIFT(xkey, func) \
     if(be_handle_key(be, MOD_CTRL | MOD_SHIFT, \
                      KEY_ ## xkey, \
-                     &func, NULL)){ \
+                     &func, be)){ \
         goto fail; \
     }
 
 int add_bindings(backend_t *be){
     ADD_KEY(Q, quit);
-    ADD_KEY(ENTER, exec_vimb);
+    ADD_KEY(ENTER, exec_weston_terminal);
     ADD_KEY(BACKSLASH, dohsplit);
     ADD_KEY(MINUS, dovsplit);
     ADD_KEY(H, goleft);

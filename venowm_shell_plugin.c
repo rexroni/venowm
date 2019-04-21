@@ -30,30 +30,15 @@ workspace_t **g_workspaces;
 size_t g_workspaces_size;
 size_t g_nworkspaces;
 
-
-static void exec(const char *shcmd){
-    logmsg("called exec\n");
-    pid_t pid = fork();
-    if(pid < 0){
-        perror("fork");
-        return;
-    }
-    if(pid == 0){
-        // child
-        execl("/bin/sh", "/bin/sh", "-c", shcmd, NULL);
-        perror("execl");
-        exit(127);
-    }
-    // parent continues with whatever it was doing
-    return;
-}
-
 struct be_screen_t {
     backend_t *be;
     struct weston_output *output;
     struct wl_listener output_destroyed_listener;
     struct wl_list link; // link of backend_t->be_screens
     void *cb_data;
+    // a blank background for each screen
+    struct weston_surface *bg_srfc;
+    struct weston_view *bg_view;
 };
 
 struct be_window_t {
@@ -112,6 +97,9 @@ static void be_screen_free(be_screen_t *be_screen){
     handle_screen_destroy(be_screen->cb_data);
     wl_list_remove(&be_screen->output_destroyed_listener.link);
     wl_list_remove(&be_screen->link);
+    weston_layer_entry_remove(&be_screen->bg_view->layer_link);
+    weston_view_destroy(be_screen->bg_view);
+    weston_surface_destroy(be_screen->bg_srfc);
     free(be_screen);
 }
 
@@ -128,11 +116,22 @@ static be_screen_t *be_screen_new(backend_t *be, struct weston_output *output){
     be_screen->be = be;
     be_screen->output = output;
 
+    // add a blank background surface
+    be_screen->bg_srfc = weston_surface_create(be->compositor);
+    if(!be_screen->bg_srfc) goto cu_screen;
+    weston_surface_set_size(be_screen->bg_srfc, 8192, 8192);
+    weston_surface_set_color(be_screen->bg_srfc, 0.0, 0.0, 0.5, 1);
+
+    // add a view to the background
+    be_screen->bg_view = weston_view_create(be_screen->bg_srfc);
+    if(!be_screen->bg_view) goto cu_srfc;
+    weston_layer_entry_insert(&be->layer_bg.view_list,
+                              &be_screen->bg_view->layer_link);
+    weston_view_set_position(be_screen->bg_view, 0, 0);
+
     // call venowm's new screen handler and get cb_data
     if(handle_screen_new(be_screen, &be_screen->cb_data)){
-        // error!
-        free(be_screen);
-        return NULL;
+        goto cu_view;
     }
 
     be_screen->output_destroyed_listener.notify = handle_output_destroyed;
@@ -142,15 +141,19 @@ static be_screen_t *be_screen_new(backend_t *be, struct weston_output *output){
 
     // TODO: handle resize/move events?
 
-    // create a window
-    logmsg("execing!\n");
-    exec("weston-terminal");
-
     return be_screen;
+
+cu_view:
+    weston_layer_entry_remove(&be_screen->bg_view->layer_link);
+    weston_view_destroy(be_screen->bg_view);
+cu_srfc:
+    weston_surface_destroy(be_screen->bg_srfc);
+cu_screen:
+    free(be_screen);
+    return NULL;
 }
 
 static void handle_output_created(struct wl_listener *l, void *data){
-    logmsg("handle_output_created()\n");
     struct weston_output *output = data;
     backend_t *be = wl_container_of(l, be, output_created_listener);
 
@@ -169,7 +172,6 @@ static void be_seat_free(be_seat_t *be_seat){
 }
 
 static void handle_seat_destroyed(struct wl_listener *l, void *data){
-    logmsg("handle_seat_destroyed()\n");
     (void)data;
     be_seat_t *be_seat = wl_container_of(l, be_seat, seat_destroyed_listener);
     be_seat_free(be_seat);
@@ -194,7 +196,6 @@ static be_seat_t *be_seat_new(backend_t *be, struct weston_seat *seat){
 }
 
 void handle_seat_created(struct wl_listener *l, void *data){
-    logmsg("handle_seat_created()\n");
     struct weston_seat *seat = data;
     backend_t *be = wl_container_of(l, be, seat_created_listener);
 
@@ -207,22 +208,22 @@ void handle_seat_created(struct wl_listener *l, void *data){
 
 static void backend_handle_surface_commit(struct wl_listener *l, void *data){
     logmsg("handle_surface_commit()\n");
-    // be_window_t *be_window = wl_container_of(l, be_window, commit_listener);
-    // backend_t *be = be_window->be;
-    // // dereference the surface that did the commit
-    // struct weston_surface *srfc = data;
+    (void)data;
+    be_window_t *be_window = wl_container_of(l, be_window, commit_listener);
+    backend_t *be = be_window->be;
 
-    // // if the view is linked, damage the surface
-    // if(be_window->linked){
-    //     weston_surface_damage(srfc);
-    //     weston_compositor_schedule_repaint(be->compositor);
-    //     logmsg("scheduled repaint 1\n");
-    // }
+    // schedule a repaint
+    weston_compositor_schedule_repaint(be->compositor);
+    // TODO: don't schedule a repaint on every single commit
+    //       (why is this not working out-of-the-box??)
+
+    // // only schedule a repaint after the very first commit
+    // // (nevermind, this did not help anything)
+    // wl_list_remove(&be_window->commit_listener.link);
 }
 
 static void handle_desktop_surface_added(
         struct weston_desktop_surface *surface, void *user_data){
-    logmsg("handle_desktop_surface_added()\n");
     // the callback's user_data is the backend_t
     backend_t *be = user_data;
 
@@ -254,6 +255,7 @@ static void handle_desktop_surface_added(
     // store this be_window as the user_data for the surface
     weston_desktop_surface_set_user_data(surface, be_window);
 
+
     // add a listener to the commit signal for the surface
     be_window->commit_listener.notify = backend_handle_surface_commit;
     struct weston_surface *srfc = weston_desktop_surface_get_surface(surface);
@@ -273,7 +275,6 @@ fail:
 
 static void handle_desktop_surface_removed(
         struct weston_desktop_surface *surface, void *user_data){
-    logmsg("handle_desktop_surface_removed()\n");
     // the callback's user_data is the backend_t
     backend_t *be = user_data;
 
@@ -289,7 +290,8 @@ static void handle_desktop_surface_removed(
     }
 
     // call application's destroy handler
-    handle_window_destroy(be_window->cb_data);
+    if(be_window->cb_data)
+        handle_window_destroy(be_window->cb_data);
 
     // cleanup
     weston_desktop_surface_unlink_view(be_window->view);
@@ -333,8 +335,6 @@ static void shell_free(backend_t *be){
     text_backend_destroy(be->text_backend);
     // remove listeners
     wl_list_remove(&be->destroy_listener.link);
-    // free backend struct
-    free(be);
 
     // global variables:
 
@@ -346,10 +346,12 @@ static void shell_free(backend_t *be){
         workspace_free(g_workspaces[i]);
     }
     FREE_PTR(g_workspaces, g_workspaces_size, g_nworkspaces);
+
+    // free backend struct
+    free(be);
 }
 
 static void handle_compositor_destroy(struct wl_listener *l, void *data){
-    logmsg("handle_compositor_destroy()\n");
     (void)data;
     backend_t *be = wl_container_of(l, be, destroy_listener);
     shell_free(be);
@@ -364,7 +366,6 @@ int wet_shell_init(struct weston_compositor *c, int *argc, char *argv[]){
     // allocate the backend
     backend_t *be = malloc(sizeof(*be));
     if(!be){
-        logmsg("failed allocating backend\n");
         return -1;
     }
     *be = (backend_t){0};
@@ -539,8 +540,6 @@ void be_unfocus_all(backend_t *be){
         struct weston_surface *srfc =
             weston_desktop_surface_get_surface(be->last_focused_surface);
         weston_surface_damage(srfc);
-        weston_compositor_schedule_repaint(be->compositor);
-        logmsg("scheduled repaint 2\n");
     }
     // no focus for every seat
     be_seat_t *be_seat;
@@ -562,7 +561,6 @@ void be_window_focus(be_window_t *be_window){
         struct weston_surface *srfc =
             weston_desktop_surface_get_surface(be->last_focused_surface);
         weston_surface_damage(srfc);
-        // schedule repaint after refocus
     }
     // focus the this next surface
     weston_desktop_surface_set_activated(be_window->surface, true);
@@ -570,8 +568,6 @@ void be_window_focus(be_window_t *be_window){
     srfc = weston_desktop_surface_get_surface(be_window->surface);
     // mark damage
     weston_surface_damage(srfc);
-    weston_compositor_schedule_repaint(be->compositor);
-        logmsg("scheduled repaint\n");
     // focus every seat on surface
     struct be_seat_t *be_seat;
     wl_list_for_each(be_seat, &be->be_seats, link){
@@ -631,8 +627,6 @@ void be_window_show(be_window_t *be_window, be_screen_t *be_screen){
     struct weston_surface *surface =
         weston_desktop_surface_get_surface(be_window->surface);
     weston_surface_damage(surface);
-    weston_compositor_schedule_repaint(be->compositor);
-        logmsg("scheduled repaint 3\n");
 }
 
 void be_window_close(be_window_t *be_window){
@@ -641,7 +635,6 @@ void be_window_close(be_window_t *be_window){
 
 void be_window_geometry(be_window_t *be_window,
                         int32_t x, int32_t y, uint32_t w, uint32_t h){
-    backend_t *be = be_window->be;
     be_window->x = x;
     be_window->y = y;
     be_window->w = w;
@@ -658,6 +651,8 @@ void be_window_geometry(be_window_t *be_window,
     struct weston_surface *surface =
         weston_desktop_surface_get_surface(be_window->surface);
     weston_surface_damage(surface);
+}
+
+void be_repaint(backend_t *be){
     weston_compositor_schedule_repaint(be->compositor);
-        logmsg("scheduled repaint 4\n");
 }

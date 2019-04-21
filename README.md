@@ -36,7 +36,7 @@ Pronounced like "venom", and definitely *not* pronounced like "vee-no window man
 
 1. Execute with `./weston --shell=venowm_shell_plugin.so`.
 
-1. Launch more windows (currently hard-coded to launch `vimb`) with "ctrl-enter".  Split the screen with "ctrl-minus" or "control-backslash".  Move between frames with "ctrl-h/j/k/l".  Drag windows around with "ctrl-shift-h/j/k/l".  Close frames with "ctrl-y".  Show hidden windows with "ctrl-space".  Press "ctrl-q" to quit.
+1. Launch more windows (currently hard-coded to launch `weston-terminal`) with "ctrl-enter".  Split the screen with "ctrl-minus" or "control-backslash".  Move between frames with "ctrl-h/j/k/l".  Drag windows around with "ctrl-shift-h/j/k/l".  Close frames with "ctrl-y".  Show hidden windows with "ctrl-space".  Press "ctrl-q" to quit.
 
 ## License
 

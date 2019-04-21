@@ -381,7 +381,7 @@ backend_t *backend_new(void){
 
     // a view of the background
     be->bg_view = weston_view_create(be->bg_srfc);
-    if(!be->bg_srfc){
+    if(!be->bg_view){
         goto cu_bg_srfc;
     }
     weston_layer_entry_insert(&be->layer_bg.view_list,

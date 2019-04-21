@@ -45,6 +45,9 @@ void be_window_close(be_window_t *be_window);
 void be_window_geometry(be_window_t *be_window,
                         int32_t x, int32_t y, uint32_t w, uint32_t h);
 
+// request an explicit repaint
+void be_repaint(backend_t *be);
+
 //// CALLBACKS
 // (not defined in backend.c and must be defined elsewhere)
 

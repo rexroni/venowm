@@ -15,7 +15,7 @@ LDFLAGS+=`pkg-config --libs $(PKGS)`
 LDFLAGS+=-lm
 LDFLAGS+=-shared
 
-all: venowm_shell_plugin.so test_split
+all: clean venowm_shell_plugin.so test_split
 
 test_split: split.o logmsg.o
 
