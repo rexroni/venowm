@@ -206,14 +206,17 @@ void handle_seat_created(struct wl_listener *l, void *data){
 
 ///// Desktop API functions
 
-static void backend_handle_surface_commit(struct wl_listener *l, void *data){
-    logmsg("handle_surface_commit()\n");
-    (void)data;
-    be_window_t *be_window = wl_container_of(l, be_window, commit_listener);
-    backend_t *be = be_window->be;
+static void handle_desktop_surface_committed(
+        struct weston_desktop_surface *surface, int32_t sx, int32_t sy,
+        void *user_data){
+    logmsg("handle_desktop_surface_committed()\n");
+    backend_t *be = user_data;
+    be_window_t *be_window = weston_desktop_surface_get_user_data(surface);
 
     // schedule a repaint
-    weston_compositor_schedule_repaint(be->compositor);
+    if(be_window->linked){
+        weston_compositor_schedule_repaint(be->compositor);
+    }
     // TODO: don't schedule a repaint on every single commit
     //       (why is this not working out-of-the-box??)
 
@@ -305,6 +308,8 @@ static const struct weston_desktop_api desktop_api = {
     // minimal API requirements:
     .surface_added = handle_desktop_surface_added,
     .surface_removed = handle_desktop_surface_removed,
+    // additional things I want to implement
+    .committed = handle_desktop_surface_committed,
 };
 
 ///// End Desktop API functions
