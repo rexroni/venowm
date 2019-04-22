@@ -29,92 +29,6 @@ workspace_t **g_workspaces;
 size_t g_workspaces_size;
 size_t g_nworkspaces;
 
-static void exec(const char *shcmd){
-    logmsg("called exec\n");
-    pid_t pid = fork();
-    if(pid < 0){
-        perror("fork");
-        return;
-    }
-    if(pid == 0){
-        // child
-        execl("/bin/sh", "/bin/sh", "-c", shcmd, NULL);
-        perror("execl");
-        exit(127);
-    }
-    // parent continues with whatever it was doing
-    return;
-}
-
-DEFINE_KEY_HANDLER(quit)
-    logmsg("called quit\n");
-    backend_stop(be);
-FINISH_KEY_HANDLER
-
-DEFINE_KEY_HANDLER(exec_vimb)
-    exec("env GDK_BACKEND=wayland vimb");
-FINISH_KEY_HANDLER
-
-DEFINE_KEY_HANDLER(dohsplit)
-    workspace_hsplit(g_workspace, g_workspace->focus, 0.5);
-FINISH_KEY_HANDLER
-
-DEFINE_KEY_HANDLER(dovsplit)
-    workspace_vsplit(g_workspace, g_workspace->focus, 0.5);
-FINISH_KEY_HANDLER
-
-DEFINE_KEY_HANDLER(goleft)
-    split_t *new = split_move_left(g_workspace->focus);
-    workspace_focus_frame(g_workspace, new);
-FINISH_KEY_HANDLER
-
-DEFINE_KEY_HANDLER(goright)
-    split_t *new = split_move_right(g_workspace->focus);
-    workspace_focus_frame(g_workspace, new);
-FINISH_KEY_HANDLER
-
-DEFINE_KEY_HANDLER(goup)
-    split_t *new = split_move_up(g_workspace->focus);
-    workspace_focus_frame(g_workspace, new);
-FINISH_KEY_HANDLER
-
-DEFINE_KEY_HANDLER(godown)
-    split_t *new = split_move_down(g_workspace->focus);
-    workspace_focus_frame(g_workspace, new);
-FINISH_KEY_HANDLER
-
-DEFINE_KEY_HANDLER(remove_frame)
-    workspace_remove_frame(g_workspace, g_workspace->focus);
-FINISH_KEY_HANDLER
-
-DEFINE_KEY_HANDLER(swapleft)
-    split_t *new = split_move_left(g_workspace->focus);
-    workspace_swap_windows_from_frames(g_workspace->focus, new);
-FINISH_KEY_HANDLER
-
-DEFINE_KEY_HANDLER(swapright)
-    split_t *new = split_move_right(g_workspace->focus);
-    workspace_swap_windows_from_frames(g_workspace->focus, new);
-FINISH_KEY_HANDLER
-
-DEFINE_KEY_HANDLER(swapup)
-    split_t *new = split_move_up(g_workspace->focus);
-    workspace_swap_windows_from_frames(g_workspace->focus, new);
-FINISH_KEY_HANDLER
-
-DEFINE_KEY_HANDLER(swapdown)
-    split_t *new = split_move_down(g_workspace->focus);
-    workspace_swap_windows_from_frames(g_workspace->focus, new);
-FINISH_KEY_HANDLER
-
-DEFINE_KEY_HANDLER(next_win)
-    workspace_next_hidden_win_at(g_workspace, g_workspace->focus);
-FINISH_KEY_HANDLER
-
-DEFINE_KEY_HANDLER(prev_win)
-    workspace_prev_hidden_win_at(g_workspace, g_workspace->focus);
-FINISH_KEY_HANDLER
-
 void sigchld_handler(int signum){
     logmsg("handled sigchld\n");
     (void)signum;
@@ -136,17 +50,24 @@ int main(){
     int retval = 0;
     int err;
 
+
     // set the SIGCHLD handler
     signal(SIGCHLD, sigchld_handler);
 
+    be = backend_new();
+    if(!be){;
+        return 99;
+    }
+
     INIT_PTR(g_workspaces, g_workspaces_size, g_nworkspaces, 8, err);
     if(err){
-        return 99;
+        retval = 99;
+        goto cu_backend;
     }
 
     // allocate some workspaces
     for(size_t i = 0; i <= 5; i ++){
-        workspace_t *new = workspace_new();
+        workspace_t *new = workspace_new(be);
         if(!new){
             retval = 99;
             goto cu_workspaces;
@@ -169,11 +90,7 @@ int main(){
         goto cu_workspaces;
     }
 
-    be = backend_new();
-    if(!be){
-        goto cu_screens;
-    }
-
+/*
 #define ADD_KEY(xkey, func) \
     if(be_handle_key(be, MOD_CTRL, \
                      KEY_ ## xkey, \
@@ -203,15 +120,13 @@ int main(){
     ADD_KEY_SHIFT(L, swapright);
     ADD_KEY(SPACE, next_win);
     ADD_KEY_SHIFT(SPACE, prev_win);
-#undef ADD_KEY
+#undef ADD_KEY */
 
     backend_run(be);
 
     logmsg("post run\n");
 
-cu_backend:
-    backend_free(be);
-cu_screens:
+//cu_screens:
     // screens are freed by the pre-destroy-screen handler
     FREE_PTR(g_screens, g_screens_size, g_nscreens);
 cu_workspaces:
@@ -220,6 +135,8 @@ cu_workspaces:
         workspace_free(g_workspaces[i]);
     }
     FREE_PTR(g_workspaces, g_workspaces_size, g_nworkspaces);
+cu_backend:
+    backend_free(be);
     logmsg("exiting from main: %d\n", retval);
     return retval;
 }

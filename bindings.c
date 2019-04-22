@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <linux/input.h>
+#include <stdio.h>
 
 #include "bindings.h"
 #include "logmsg.h"
@@ -26,7 +27,7 @@ static void exec(const char *shcmd){
 }
 
 #define DEFINE_KEY_HANDLER(func_name) \
-    void func_name(struct weston_keyboard *keyboard, \
+    void func_name(void *keyboard, \
                    const struct timespec *timespec, \
                    uint32_t value, \
                    void *data){ \
