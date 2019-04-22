@@ -7,7 +7,6 @@
 /* don't like the #define strategy, there is no way to say that a
    struct of one name just refers to a struct of another name. */
 
-#include <compositor.h>
 typedef struct be_screen_t be_screen_t;
 typedef struct be_window_t be_window_t;
 
@@ -26,7 +25,7 @@ enum {
     MOD_SHIFT = 1 << 3,
 };
 
-typedef void (*be_key_handler_t)(struct weston_keyboard*,
+typedef void (*be_key_handler_t)(void*,
                                  const struct timespec*,
                                  uint32_t,
                                  void*);
