@@ -208,7 +208,7 @@ void handle_seat_created(struct wl_listener *l, void *data){
 static void handle_desktop_surface_committed(
         struct weston_desktop_surface *surface, int32_t sx, int32_t sy,
         void *user_data){
-    logmsg("handle_desktop_surface_committed()\n");
+    (void)sx; (void)sy;
     backend_t *be = user_data;
     be_window_t *be_window = weston_desktop_surface_get_user_data(surface);
 
@@ -216,12 +216,6 @@ static void handle_desktop_surface_committed(
     if(be_window->linked){
         weston_compositor_schedule_repaint(be->compositor);
     }
-    // TODO: don't schedule a repaint on every single commit
-    //       (why is this not working out-of-the-box??)
-
-    // // only schedule a repaint after the very first commit
-    // // (nevermind, this did not help anything)
-    // wl_list_remove(&be_window->commit_listener.link);
 }
 
 static void handle_desktop_surface_added(
@@ -534,10 +528,6 @@ void be_unfocus_all(backend_t *be){
     // un-focus the previously-focused surface
     if(be->last_focused_surface){
         weston_desktop_surface_set_activated(be->last_focused_surface, false);
-        // mark damage
-        struct weston_surface *srfc =
-            weston_desktop_surface_get_surface(be->last_focused_surface);
-        weston_surface_damage(srfc);
     }
     // no focus for every seat
     be_seat_t *be_seat;
@@ -555,17 +545,11 @@ void be_window_focus(be_window_t *be_window){
     if(be->last_focused_surface){
         weston_desktop_surface_set_activated(
                 be->last_focused_surface, false);
-        // mark damage
-        struct weston_surface *srfc =
-            weston_desktop_surface_get_surface(be->last_focused_surface);
-        weston_surface_damage(srfc);
     }
     // focus the this next surface
     weston_desktop_surface_set_activated(be_window->surface, true);
     struct weston_surface *srfc;
     srfc = weston_desktop_surface_get_surface(be_window->surface);
-    // mark damage
-    weston_surface_damage(srfc);
     // focus every seat on surface
     struct be_seat_t *be_seat;
     wl_list_for_each(be_seat, &be->be_seats, link){
