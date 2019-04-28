@@ -1,12 +1,32 @@
 #include <stdlib.h>
 #include <wayland-server.h>
+
 #include <wlr/backend.h>
+#include <wlr/types/wlr_compositor.h>
+#include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/interfaces/wlr_output.h>
 #include <wlr/render/interface.h>
 
 #include "backend.h"
 #include "venowm.h"
 #include "logmsg.h"
+
+static void exec(const char *shcmd){
+    logmsg("called exec\n");
+    pid_t pid = fork();
+    if(pid < 0){
+        perror("fork");
+        return;
+    }
+    if(pid == 0){
+        // child
+        execl("/bin/sh", "/bin/sh", "-c", shcmd, NULL);
+        perror("execl");
+        exit(127);
+    }
+    // parent continues with whatever it was doing
+    return;
+}
 
 struct be_screen_t {
     // cb_data is set by the frontend, we don't touch it.
@@ -26,6 +46,10 @@ struct backend_t {
     struct wl_event_loop *loop;
     // the wayland backend
     struct wlr_backend *wlr_backend;
+    // the wlr compositor
+    struct wlr_compositor *compositor;
+    // shell interfaces
+    struct wlr_xdg_shell_v6 *xdg_shell_v6;
     // outputs
     struct wl_listener new_output_listener;
     struct wl_list be_screens;
@@ -170,6 +194,9 @@ void be_repaint(backend_t *be){
 }
 
 void backend_free(backend_t *be){
+    wlr_xdg_shell_v6_destroy(be->xdg_shell_v6);
+    wlr_compositor_destroy(be->compositor);
+    wl_list_remove(&be->new_output_listener.link);
     wlr_backend_destroy(be->wlr_backend);
     wl_display_destroy(be->display);
     free(be);
@@ -196,13 +223,29 @@ backend_t *backend_new(void){
     wl_signal_add(&be->wlr_backend->events.new_output,
                   &be->new_output_listener);
 
+    // add a compositor
+    be->compositor = wlr_compositor_create(be->display,
+            wlr_backend_get_renderer(be->wlr_backend));
+    if(!be->compositor) goto fail_wlr_backend;
+
+    // add some interfaces
+    be->xdg_shell_v6 = wlr_xdg_shell_v6_create(be->display);
+    if(!be->xdg_shell_v6) goto fail_compositor;
+
+    wl_display_init_shm(be->display);
+
     // become a proper wayland server
     be->socket = wl_display_add_socket_auto(be->display);
-    if(!be->socket) goto fail_wlr_backend;
+    if(!be->socket) goto fail_xdg_shell_v6;
 
     return be;
 
+fail_xdg_shell_v6:
+    wlr_xdg_shell_v6_destroy(be->xdg_shell_v6);
+fail_compositor:
+    wlr_compositor_destroy(be->compositor);
 fail_wlr_backend:
+    wl_list_remove(&be->new_output_listener.link);
     wlr_backend_destroy(be->wlr_backend);
 fail_display:
     wl_display_destroy(be->display);
@@ -216,9 +259,9 @@ int backend_run(backend_t *be){
     int ret = wlr_backend_start(be->wlr_backend);
     if(!ret) return -1;
 
-    wl_display_init_shm(be->display);
-
     setenv("WAYLAND_DISPLAY", be->socket, true);
+
+    exec("weston-info > wifo");
 
     wl_display_run(be->display);
     // TODO: check error
