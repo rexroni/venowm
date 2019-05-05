@@ -2,6 +2,10 @@
 #include <stdlib.h>
 #include <unistd.h>
 
+#include <cairo.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
+
 #include <wayland-util.h>
 
 #include <compositor.h>
@@ -18,6 +22,8 @@
 #include "bindings.h"
 #include "venowm.h"
 #include "logmsg.h"
+
+#include "protocol/xdg-decoration-unstable-v1-server.h"
 
 // venowm global variables
 workspace_t *g_workspace;
@@ -65,6 +71,8 @@ struct be_seat_t {
 };
 typedef struct be_seat_t be_seat_t;
 
+struct nodeco_t;
+
 struct backend_t {
     struct weston_compositor *compositor;
     // compositor-level listeners
@@ -72,6 +80,7 @@ struct backend_t {
     struct wl_listener output_created_listener;
     struct wl_listener seat_created_listener;
     // layers
+    struct weston_layer layer_foreground;
     struct weston_layer layer_normal;
     struct weston_layer layer_bg;
     struct weston_layer layer_minimized;
@@ -84,6 +93,7 @@ struct backend_t {
 
     struct weston_desktop_surface *last_focused_surface;
 
+    struct nodeco_t *nodeco;
     // old elements
     // struct wl_display *disp;
 	// struct wl_listener heads_changed_listener;
@@ -209,6 +219,7 @@ static void handle_desktop_surface_committed(
         struct weston_desktop_surface *surface, int32_t sx, int32_t sy,
         void *user_data){
     (void)sx; (void)sy;
+    logmsg("commit %d %d\n", sx, sy);
     backend_t *be = user_data;
     be_window_t *be_window = weston_desktop_surface_get_user_data(surface);
 
@@ -246,7 +257,7 @@ static void handle_desktop_surface_added(
 
     ////// No errors after this point
 
-    weston_desktop_surface_set_fullscreen(surface, true);
+    //weston_desktop_surface_set_fullscreen(surface, true);
 
     // store this be_window as the user_data for the surface
     weston_desktop_surface_set_user_data(surface, be_window);
@@ -289,6 +300,30 @@ static void handle_desktop_surface_removed(
     free(be_window);
 }
 
+static void handle_desktop_fullscreen_requested(
+        struct weston_desktop_surface *surface, bool fullscreen,
+        struct weston_output *output,
+        void *user_data) {
+    backend_t *be = user_data;
+    (void)be;
+    (void)output;
+
+    logmsg("handle_desktop_fullscreen_requested %d\n", fullscreen);
+
+    weston_desktop_surface_set_fullscreen(surface, fullscreen);
+}
+
+static void handle_desktop_maximized_requested(
+        struct weston_desktop_surface *surface, bool maximized,
+        void *user_data) {
+    backend_t *be = user_data;
+    (void)be;
+
+    logmsg("handle_desktop_maximized_requested %d\n", maximized);
+
+    weston_desktop_surface_set_maximized(surface, maximized);
+}
+
 static const struct weston_desktop_api desktop_api = {
     // for ABI backward-compatibility
     .struct_size = sizeof(struct weston_desktop_api),
@@ -297,13 +332,132 @@ static const struct weston_desktop_api desktop_api = {
     .surface_removed = handle_desktop_surface_removed,
     // additional things I want to implement
     .committed = handle_desktop_surface_committed,
+    .fullscreen_requested = handle_desktop_fullscreen_requested,
+    .maximized_requested = handle_desktop_maximized_requested,
 };
 
 ///// End Desktop API functions
 
+///// Nodeco functions
+
+typedef struct {
+    backend_t *be;
+    struct wl_client *wl_client;
+    struct wl_resource *resource;
+    // wl_list link; // nodeco_t->clients
+} nodeco_client_t;
+
+struct nodeco_t {
+    struct wl_global *global;
+    struct wl_list clients;
+};
+
+static void nodeco_client_destroy(struct wl_resource *resource){
+    nedeco_client_t *client;
+    client = wl_resource_get_user_data(resource);
+
+    // wl_list_remove(&client->link);
+
+    free(client);
+}
+
+static void nodeco_destroy(backend_t *be){
+
+}
+
+// zxdg_toplevel_decoration_v1_send_configure(struct wl_resource *resource_, uint32_t mode)
+
+struct xdg_toplevel;
+struct zxdg_decoration_manager_v1;
+struct zxdg_toplevel_decoration_v1;
+
+static const struct zxdg_decoration_manager_v1_interface nodeco_mgr_v1_impl {
+    .destroy = ,
+    .get_toplevel_decoration = ,
+
+    void (*destroy)(struct wl_client *client,
+            struct wl_resource *resource);
+    void (*get_toplevel_decoration)(struct wl_client *client,
+                    struct wl_resource *resource,
+                    uint32_t id,
+                    struct wl_resource *toplevel);
+}
+
+static const struct zxdg_toplevel_decoration_v1_interface nodeco_v1_impl {
+    .destroy = ,
+    .set_mode = ,
+    .unset_mode = ,
+
+    // destroy also means "switch back to CSD at next commit"
+    void (*destroy)(struct wl_client *client,
+            struct wl_resource *resource);
+    void (*set_mode)(struct wl_client *client,
+             struct wl_resource *resource,
+             uint32_t mode);
+    void (*unset_mode)(struct wl_client *client,
+               struct wl_resource *resource);
+}
+
+
+static void nodeco_bind(struct wl_client *wl_client, void *data,
+                        uint32_t version, uint32_t id){
+    backend_t *be = data;
+
+    nodeco_client_t *client = malloc(sizeof(*client));
+    if(!client){
+        // TODO: why would this ever be null?
+        if(wl_client){
+            wl_client_post_no_memory(wl_client);
+        }
+        return;
+    }
+
+    client->be = be;
+    client->wl_client = wl_client;
+
+    // TODO: why would this ever be null?
+    if(!wl_client) return;
+
+    client->resource = wl_resource_create(wl_client,
+        &zxdg_decoration_manager_v1_interface, version, id);
+    if(!client->resource){
+        wl_client_post_no_memory(wl_client);
+        free(client);
+        return;
+    }
+
+    wl_resource_set_implementation(client->resource, implementation, client,
+            nodeco_client_destroy);
+
+
+    // YOU ARE HERE, trying to figure this shit out.  Looks like you need to
+    // implement both interfaces from the xdg-decoration protocol separately,
+    // see how sway does it.
+
+}
+
+
+#define XDG_DECORATION_VERSION 1
+static int nodeco_create(backend_t *be){
+    be->nodeco.global = wl_global_create(be->compositor->display,
+                                          &zxdg_decoration_manager_v1_interface,
+                                          be,
+                                          nodeco_bind);
+    wl_list_init(&be->nodeco.clients);
+
+    if(!be->nodeco->global) goto fail;
+    return 0;
+
+fail:
+    return -1;
+}
+///// End Nodeco functions
+
 ///// Plugin-level Functions
 
 static void shell_free(backend_t *be){
+    // cleanup nodeco
+    nodeco_destroy(be);
     // cleanup be_seats
     {
         be_seat_t *be_seat;
@@ -355,6 +509,10 @@ int wet_shell_init(struct weston_compositor *c, int *argc, char *argv[]){
     int retval;
     int err;
 
+    // configure keyboard repeat rate
+    c->kb_repeat_rate = 40;
+    c->kb_repeat_delay = 200;
+
     // allocate the backend
     backend_t *be = malloc(sizeof(*be));
     if(!be){
@@ -404,6 +562,9 @@ int wet_shell_init(struct weston_compositor *c, int *argc, char *argv[]){
     be->compositor = c;
 
     // layers
+    weston_layer_init(&be->layer_foreground, c);
+    weston_layer_set_position(&be->layer_foreground,
+                              WESTON_LAYER_POSITION_TOP_UI);
     weston_layer_init(&be->layer_normal, c);
     weston_layer_set_position(&be->layer_normal, WESTON_LAYER_POSITION_NORMAL);
     weston_layer_init(&be->layer_bg, c);
@@ -461,6 +622,8 @@ int wet_shell_init(struct weston_compositor *c, int *argc, char *argv[]){
     // TODO: handle output_resized?
 
     if(add_bindings(be)) goto cu_be_seats;
+
+    if(nodeco_create(be)) goto cu_be_seats;
 
     return 0;
 
@@ -602,8 +765,6 @@ void be_window_show(be_window_t *be_window, be_screen_t *be_screen){
     weston_desktop_surface_set_size(be_window->surface, be_window->w,
                                     be_window->h);
     weston_view_set_position(be_window->view, be_window->x, be_window->y);
-    // Is this necessary?  Found it above struct weston_view
-    // weston_view_geometry_dirty(be_window->view);
     be_window->dirty_geometry = false;
     // mark damage
     struct weston_surface *surface =
