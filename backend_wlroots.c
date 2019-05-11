@@ -10,6 +10,9 @@
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/interfaces/wlr_output.h>
 #include <wlr/render/interface.h>
+#include <wlr/types/wlr_keyboard.h>
+#include <wlr/types/wlr_cursor.h>
+#include <wlr/types/wlr_xcursor_manager.h>
 
 #include <xkbcommon/xkbcommon.h>
 
@@ -61,6 +64,15 @@ struct backend_t {
     struct wl_listener new_output_listener;
     struct wl_list be_screens;
     const char *socket;
+    // inputs
+    struct wlr_seat *seat;
+    uint32_t seat_caps;
+    struct wlr_cursor *cursor;
+    struct wlr_xcursor_manager *cursor_mgr;
+
+    // trash elements; delete these
+    struct wlr_surface *wlr_surface;
+    struct wlr_xdg_surface *xdg_surface;
 };
 
 ///// Backend Screen Functions
@@ -216,11 +228,30 @@ typedef struct {
     struct wl_listener mod_listener;
 } keyboard_t;
 
+static bool entered = false;
+
 static void handle_key(struct wl_listener *l, void *data){
     keyboard_t *kbd = wl_container_of(l, kbd, key_listener);
     struct wlr_event_keyboard_key *event = data;
-    (void)event; (void)kbd;
-    logmsg("key\n");
+    backend_t *be = kbd->be;
+    logmsg("key to %p\n", kbd->be->seat->keyboard_state.focused_surface);
+
+
+    if(!entered){
+        struct wlr_keyboard *k = kbd->device->keyboard;
+        logmsg("wlr_keyboard %p\n", k);
+        logmsg("wlr_seat_keyboard_notify_enter(%p, %p, %p, %zu, %p)\n",
+                be->seat, be->wlr_surface, k->keycodes, k->num_keycodes,
+                &k->modifiers);
+        wlr_seat_keyboard_notify_enter(be->seat, be->wlr_surface, k->keycodes,
+                k->num_keycodes, &k->modifiers);
+        entered = true;
+    }
+
+    wlr_seat_set_keyboard(be->seat, kbd->device);
+    wlr_seat_keyboard_notify_key(be->seat, event->time_msec,
+                                 event->keycode, event->state);
+
 }
 
 static void handle_modifier(struct wl_listener *l, void *data){
@@ -232,6 +263,7 @@ static void handle_modifier(struct wl_listener *l, void *data){
 
 static struct xkb_context *xkb_context = NULL;
 static struct xkb_keymap *xkb_keymap = NULL;
+static struct xkb_rule_names rules = {0};
 
 keyboard_t *keyboard_new(backend_t *be, struct wlr_input_device *device){
     logmsg("new keyboard\n");
@@ -241,28 +273,42 @@ keyboard_t *keyboard_new(backend_t *be, struct wlr_input_device *device){
 
     device->data = kbd;
     kbd->device = device;
+    kbd->be = be;
 
-    // load a keyboard map (generated with `xkbcomp $DISPLAY xkb.dump`)
+
+    // // load a keyboard map (generated with `xkbcomp $DISPLAY xkb.dump`)
+    // if(!xkb_context){
+    //     xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    //     FILE *f = fopen("xkb.dump", "r");
+    //     if(!f){
+    //         perror("fopen(xkb.dump)");
+    //     }else{
+    //         xkb_keymap = xkb_keymap_new_from_file(
+    //                 xkb_context, f, XKB_KEYMAP_FORMAT_TEXT_V1, 0);
+    //         fclose(f);
+    //     }
+    // }
+
+    // use default xkb rules
     if(!xkb_context){
         xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
-        FILE *f = fopen("xkb.dump", "r");
-        if(!f){
-            perror("fopen(xkb.dump)");
-        }else{
-            xkb_keymap = xkb_keymap_new_from_file(
-                    xkb_context, f, XKB_KEYMAP_FORMAT_TEXT_V1, 0);
-            fclose(f);
-        }
+        xkb_keymap = xkb_keymap_new_from_names(
+            xkb_context, &rules, XKB_KEYMAP_COMPILE_NO_FLAGS);
     }
 
-
     wlr_keyboard_set_keymap(device->keyboard, xkb_keymap);
+    wlr_keyboard_set_repeat_info(device->keyboard, 40, 200);
 
     kbd->key_listener.notify = handle_key;
     wl_signal_add(&device->keyboard->events.key, &kbd->key_listener);
 
     kbd->mod_listener.notify = handle_modifier;
     wl_signal_add(&device->keyboard->events.modifiers, &kbd->mod_listener);
+
+    be->seat_caps |= WL_SEAT_CAPABILITY_KEYBOARD;
+    // wlr_seat_set_capabilities(be->seat, be->seat_caps);
+
+    wlr_seat_set_keyboard(kbd->be->seat, kbd->device);
 
     return kbd;
 }
@@ -272,20 +318,28 @@ typedef struct {
     struct wlr_input_device *device;
     struct wl_listener button_listener;
     struct wl_listener motion_listener;
+    struct wl_listener motion_abs_listener;
 } pointer_t;
 
 static void handle_button(struct wl_listener *l, void *data){
     pointer_t *ptr = wl_container_of(l, ptr, button_listener);
     struct wlr_event_mouse_button *event = data;
     (void)event; (void)ptr;
-    logmsg("button\n");
+    // logmsg("button\n");
 }
 
 static void handle_motion(struct wl_listener *l, void *data){
     pointer_t *ptr = wl_container_of(l, ptr, motion_listener);
     struct wlr_event_mouse_motion *event = data;
     (void)event; (void)ptr;
-    logmsg("motion\n");
+    // logmsg("motion\n");
+}
+
+static void handle_motion_abs(struct wl_listener *l, void *data){
+    pointer_t *ptr = wl_container_of(l, ptr, motion_listener);
+    struct wlr_event_mouse_motion *event = data;
+    (void)event; (void)ptr;
+    // logmsg("motion_abs\n");
 }
 
 pointer_t *pointer_new(backend_t *be, struct wlr_input_device *device){
@@ -301,8 +355,12 @@ pointer_t *pointer_new(backend_t *be, struct wlr_input_device *device){
     wl_signal_add(&device->pointer->events.button, &ptr->button_listener);
 
     ptr->motion_listener.notify = handle_motion;
-    wl_signal_add(&device->pointer->events.motion_absolute,
+    wl_signal_add(&device->pointer->events.motion,
                   &ptr->motion_listener);
+
+    ptr->motion_abs_listener.notify = handle_motion_abs;
+    wl_signal_add(&device->pointer->events.motion_absolute,
+                  &ptr->motion_abs_listener);
 
     return ptr;
 }
@@ -391,14 +449,28 @@ static void handle_new_surface(struct wl_listener *l, void *data){
     // TODO: how to close this surface on errors?
     if(!be_window) return;
 
-    logmsg("new surface!\n");
+    logmsg("new surface! %p\n", surface);
+
+    be->wlr_surface = surface;
 }
 
 static void handle_xdg_shell_new(struct wl_listener *l, void *data){
     struct wlr_xdg_surface *surface = data;
     backend_t *be = wl_container_of(l, be, xdg_shell_new_listener);
-    logmsg("new xdg surface!\n");
-    (void)surface;
+    logmsg("new xdg surface! %p\n", surface);
+
+    be->xdg_surface = surface;
+
+    wlr_xdg_toplevel_set_activated(surface, true);
+
+    // give the newest surface focus
+    struct wlr_keyboard *kbd = wlr_seat_get_keyboard(be->seat);
+    logmsg("wlr_keyboard %p (xdg)\n", kbd);
+    logmsg("wlr_seat_keyboard_notify_enter(%p, %p, %p, %zu, %p)\n",
+            be->seat, surface->surface, kbd->keycodes, kbd->num_keycodes,
+            &kbd->modifiers);
+    //wlr_seat_keyboard_notify_enter(be->seat, surface->surface, kbd->keycodes,
+    //        kbd->num_keycodes, &kbd->modifiers);
 }
 
 ///// End Backend Window Functions
@@ -433,6 +505,9 @@ void be_repaint(backend_t *be){
 }
 
 void backend_free(backend_t *be){
+    wlr_xcursor_manager_destroy(be->cursor_mgr);
+    wlr_cursor_destroy(be->cursor);
+    wlr_seat_destroy(be->seat);
     wl_list_remove(&be->wlr_surface_created.link);
     wl_list_remove(&be->compositor_destroyed_listener.link);
     wl_list_remove(&be->xdg_shell_new_listener.link);
@@ -499,11 +574,34 @@ backend_t *backend_new(void){
     wl_signal_add(&be->compositor->events.destroy,
                   &be->compositor_destroyed_listener);
 
+    // add a seat
+    be->seat = wlr_seat_create(be->display, "seat-name");
+    if(!be->seat) goto fail_listeners;
+
+    wlr_seat_set_capabilities(be->seat,
+            WL_SEAT_CAPABILITY_KEYBOARD | WL_SEAT_CAPABILITY_POINTER);
+
+    // add a cursor
+    be->cursor = wlr_cursor_create();
+    if(!be->cursor) goto fail_seat;
+    // TODO: wlr_cursor_attach_output_layout()
+
+    // add a cursor manger
+    be->cursor_mgr = wlr_xcursor_manager_create(NULL, 24);
+    if(!be->cursor_mgr) goto fail_cursor;
+    wlr_xcursor_manager_load(be->cursor_mgr, 1);
+
     return be;
 
-// fail_listeners:
-//     wl_list_remove(&be->wlr_surface_created.link);
-//     wl_list_remove(&be->compositor_destroyed_listener.link);
+// fail_cursor_mgr:
+//     wlr_xcursor_manager_destroy(be->cursor_mgr);
+fail_cursor:
+    wlr_cursor_destroy(be->cursor);
+fail_seat:
+    wlr_seat_destroy(be->seat);
+fail_listeners:
+    wl_list_remove(&be->wlr_surface_created.link);
+    wl_list_remove(&be->compositor_destroyed_listener.link);
 fail_xdg_shell:
     wl_list_remove(&be->xdg_shell_new_listener.link);
     wlr_xdg_shell_destroy(be->xdg_shell);
