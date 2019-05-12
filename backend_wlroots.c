@@ -3,6 +3,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <wayland-server.h>
+#include <wayland-util.h>
 
 #include <wlr/backend.h>
 #include <wlr/types/wlr_compositor.h>
@@ -45,6 +46,29 @@ struct be_screen_t {
     struct wl_list link; // backend_t.outputs
     struct wl_listener output_destroyed_listener;
     struct wl_listener frame_listener;
+
+    struct wl_list windows; // be_window.link
+};
+
+struct be_window_t {
+    backend_t *be;
+    void *venowm_data;
+    // base wl_surface, the first thing to be created
+    struct wlr_surface *wlr_surface;
+    struct wl_listener wlr_surface_destroyed;
+
+    // xdg_surface, extends a wl_surface
+    struct wlr_xdg_surface *xdg_surface;
+    bool mapped; // the application says if it's mapped or not
+    struct wl_listener xdg_destroyed;
+    struct wl_listener xdg_mapped;
+    struct wl_listener xdg_unmapped;
+
+    // display properties
+    int32_t x;
+    int32_t y;
+    bool show; // we decide if the application is shown or not
+    struct wl_list link; // be_screen_t.windows
 };
 
 struct backend_t {
@@ -70,10 +94,11 @@ struct backend_t {
     uint32_t seat_caps;
     struct wlr_cursor *cursor;
     struct wlr_xcursor_manager *cursor_mgr;
+    struct wl_list pointers; // pointer_t.link
+    struct wl_list keyboards; // keyboard_t.link
 
-    // trash elements; delete these
-    struct wlr_surface *wlr_surface;
-    struct wlr_xdg_surface *xdg_surface;
+    // for interacting with frontend
+    be_window_t *focus;
 };
 
 ///// Backend Screen Functions
@@ -108,11 +133,7 @@ static void handle_output_destroyed(struct wl_listener *l, void *data){
 static void handle_frame(struct wl_listener *l, void *data){
     (void)data;
     be_screen_t *be_screen = wl_container_of(l, be_screen, frame_listener);
-    backend_t *be = be_screen->be;
-
-    // wait, why the fuck are these two lines not the same???
-    //struct wlr_output *o = be_screen->output; // segfaults
-    struct wlr_output *o = data; // works
+    struct wlr_output *o = be_screen->output;
 
     struct wlr_renderer *r = wlr_backend_get_renderer(o->backend);
 
@@ -127,30 +148,35 @@ static void handle_frame(struct wl_listener *l, void *data){
     float color[4] = {0.0, 0.0, 0.5, 1.0};
     wlr_renderer_clear(r, color);
 
-    // iterate over all the surface the compositor
-    // TODO: track which surfaces are showing?
-    struct wl_resource *resource;
-    wl_resource_for_each(resource, &be->compositor->surface_resources){
-        struct wlr_surface *surface = wlr_surface_from_resource(resource);
-        if(!wlr_surface_has_buffer(surface)){
+
+    // render all the windows on this screen
+    be_window_t *be_window;
+    wl_list_for_each(be_window, &be_screen->windows, link){
+        // don't render windows not mapped or not being shown
+        if(!be_window->show || !be_window->mapped)
             continue;
-        }
+
+        struct wlr_surface *srfc = be_window->wlr_surface;
+
+        // don't render surfaces with no buffer
+        if(!wlr_surface_has_buffer(srfc))
+            continue;
+
         struct wlr_box render_box = {
             .x = 20,
             .y = 20,
-            .width = surface->current.width,
-            .height = surface->current.height,
+            .width = srfc->current.width,
+            .height = srfc->current.height,
         };
         float mat[16];
         wlr_matrix_project_box((float*)&mat, &render_box,
-                surface->current.transform, 0, (float*)&o->transform_matrix);
-        struct wlr_texture *texture = wlr_surface_get_texture(surface);
+                srfc->current.transform, 0, (float*)&o->transform_matrix);
+        struct wlr_texture *texture = wlr_surface_get_texture(srfc);
         wlr_render_texture_with_matrix(r, texture, (float*)&mat, 1.0f);
 
         struct timespec now;
         clock_gettime(CLOCK_REALTIME, &now);
-        wlr_surface_send_frame_done(surface, &now);
-
+        wlr_surface_send_frame_done(srfc, &now);
     }
 
     // show software cursor if hardware cursor is not working
@@ -201,6 +227,9 @@ static be_screen_t *be_screen_new(backend_t *be, struct wlr_output *output){
     // create a global.  Not honestly sure what this is good for.
     wlr_output_create_global(output);
 
+    // no windows on this screen yet
+    wl_list_init(&be_screen->windows);
+
     return be_screen;
 
 cu_listeners:
@@ -242,9 +271,9 @@ typedef struct {
     struct wlr_input_device *device;
     struct wl_listener key_listener;
     struct wl_listener mod_listener;
+    struct wl_listener keyboard_destroyed;
+    struct wl_list link; // backend_t.keyboards
 } keyboard_t;
-
-static bool entered = false;
 
 static void handle_key(struct wl_listener *l, void *data){
     keyboard_t *kbd = wl_container_of(l, kbd, key_listener);
@@ -252,22 +281,12 @@ static void handle_key(struct wl_listener *l, void *data){
     backend_t *be = kbd->be;
     logmsg("key to %p\n", kbd->be->seat->keyboard_state.focused_surface);
 
-
-    if(!entered){
-        struct wlr_keyboard *k = kbd->device->keyboard;
-        logmsg("wlr_keyboard %p\n", k);
-        logmsg("wlr_seat_keyboard_notify_enter(%p, %p, %p, %zu, %p)\n",
-                be->seat, be->wlr_surface, k->keycodes, k->num_keycodes,
-                &k->modifiers);
-        wlr_seat_keyboard_notify_enter(be->seat, be->wlr_surface, k->keycodes,
-                k->num_keycodes, &k->modifiers);
-        entered = true;
-    }
-
+    // wlr_seat_set_keyboard() is a noop if this keyboard is already set
     wlr_seat_set_keyboard(be->seat, kbd->device);
-    wlr_seat_keyboard_notify_key(be->seat, event->time_msec,
-                                 event->keycode, event->state);
 
+    // send key through seat
+    wlr_seat_keyboard_notify_key(be->seat, event->time_msec, event->keycode,
+            event->state);
 }
 
 static void handle_modifier(struct wl_listener *l, void *data){
@@ -277,14 +296,30 @@ static void handle_modifier(struct wl_listener *l, void *data){
     logmsg("modifier\n");
 }
 
+static void keyboard_destroyed(struct wl_listener *l, void *data){
+    keyboard_t *kbd = wl_container_of(l, kbd, keyboard_destroyed);
+    (void)data;
+    backend_t *be = kbd->be;
+
+    // remove from backend list
+    wl_list_remove(&kbd->link);
+
+    if(wl_list_empty(&be->keyboards)
+            && (be->seat_caps & WL_SEAT_CAPABILITY_KEYBOARD)){
+        be->seat_caps &= ~WL_SEAT_CAPABILITY_KEYBOARD;
+        wlr_seat_set_capabilities(be->seat, be->seat_caps);
+    }
+}
+
 static struct xkb_context *xkb_context = NULL;
 static struct xkb_keymap *xkb_keymap = NULL;
 static struct xkb_rule_names rules = {0};
 
-keyboard_t *keyboard_new(backend_t *be, struct wlr_input_device *device){
+static keyboard_t *keyboard_new(backend_t *be,
+        struct wlr_input_device *device){
     logmsg("new keyboard\n");
     keyboard_t *kbd = malloc(sizeof(*kbd));
-    // if(!kbd) // TODO: what to do if malloc fails?
+    if(!kbd) return NULL;
     *kbd = (keyboard_t){0};
 
     device->data = kbd;
@@ -308,8 +343,12 @@ keyboard_t *keyboard_new(backend_t *be, struct wlr_input_device *device){
     // use default xkb rules
     if(!xkb_context){
         xkb_context = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+        if(!xkb_context) goto fail;
+    }
+    if(!xkb_keymap){
         xkb_keymap = xkb_keymap_new_from_names(
             xkb_context, &rules, XKB_KEYMAP_COMPILE_NO_FLAGS);
+        if(!xkb_keymap) goto fail;
     }
 
     wlr_keyboard_set_keymap(device->keyboard, xkb_keymap);
@@ -321,12 +360,24 @@ keyboard_t *keyboard_new(backend_t *be, struct wlr_input_device *device){
     kbd->mod_listener.notify = handle_modifier;
     wl_signal_add(&device->keyboard->events.modifiers, &kbd->mod_listener);
 
-    be->seat_caps |= WL_SEAT_CAPABILITY_KEYBOARD;
-    // wlr_seat_set_capabilities(be->seat, be->seat_caps);
+    kbd->keyboard_destroyed.notify = keyboard_destroyed;
+    wl_signal_add(&device->events.destroy, &kbd->keyboard_destroyed);
+
+    // add to backend list
+    wl_list_insert(be->keyboards.prev, &kbd->link);
+
+    if(!(be->seat_caps & WL_SEAT_CAPABILITY_KEYBOARD)){
+        be->seat_caps |= WL_SEAT_CAPABILITY_KEYBOARD;
+        wlr_seat_set_capabilities(be->seat, be->seat_caps);
+    }
 
     wlr_seat_set_keyboard(kbd->be->seat, kbd->device);
 
     return kbd;
+
+fail:
+    free(kbd);
+    return NULL;
 }
 
 typedef struct {
@@ -335,6 +386,8 @@ typedef struct {
     struct wl_listener button_listener;
     struct wl_listener motion_listener;
     struct wl_listener motion_abs_listener;
+    struct wl_listener pointer_destroyed;
+    struct wl_list link; // backend_t.pointers
 } pointer_t;
 
 static void handle_button(struct wl_listener *l, void *data){
@@ -372,10 +425,25 @@ static void handle_motion_abs(struct wl_listener *l, void *data){
     wlr_cursor_warp_closest(be->cursor, event->device, x, y);
 }
 
-pointer_t *pointer_new(backend_t *be, struct wlr_input_device *device){
+static void pointer_destroyed(struct wl_listener *l, void *data){
+    pointer_t *ptr = wl_container_of(l, ptr, pointer_destroyed);
+    (void)data;
+    backend_t *be = ptr->be;
+
+    // remove from backend list
+    wl_list_remove(&ptr->link);
+
+    if(wl_list_empty(&be->pointers)
+            && (be->seat_caps & WL_SEAT_CAPABILITY_POINTER)){
+        be->seat_caps &= ~WL_SEAT_CAPABILITY_POINTER;
+        wlr_seat_set_capabilities(be->seat, be->seat_caps);
+    }
+}
+
+static pointer_t *pointer_new(backend_t *be, struct wlr_input_device *device){
     logmsg("new pointer\n");
     pointer_t *ptr = malloc(sizeof(*ptr));
-    // if(!ptr) // TODO: what to do if malloc fails?
+    if(!ptr) return NULL;
     *ptr = (pointer_t){0};
 
     device->data = ptr;
@@ -395,14 +463,22 @@ pointer_t *pointer_new(backend_t *be, struct wlr_input_device *device){
     wl_signal_add(&device->pointer->events.motion_absolute,
                   &ptr->motion_abs_listener);
 
+    ptr->pointer_destroyed.notify = pointer_destroyed;
+    wl_signal_add(&device->events.destroy, &ptr->pointer_destroyed);
+
     // add pointer to cursor
     wlr_cursor_attach_input_device(be->cursor, device);
 
+    // add to backend list
+    wl_list_insert(be->pointers.prev, &ptr->link);
+
+    if(!(be->seat_caps & WL_SEAT_CAPABILITY_POINTER)){
+        be->seat_caps |= WL_SEAT_CAPABILITY_POINTER;
+        wlr_seat_set_capabilities(be->seat, be->seat_caps);
+    }
+
     return ptr;
 }
-
-
-
 
 static void handle_new_input_device(struct wl_listener *l, void *data){
     backend_t *be = wl_container_of(l, be, new_input_device);
@@ -437,17 +513,6 @@ static void handle_new_input_device(struct wl_listener *l, void *data){
 
 ///// Backend Window Functions
 
-struct be_window_t {
-    backend_t *be;
-    // base wl_surface, the first thing to be created
-    struct wlr_surface *wlr_surface;
-    struct wl_listener wlr_surface_destroyed;
-
-    // xdg_surface, extends a wl_surface
-    struct wlr_xdg_surface *xdg_surface;
-    struct wl_listener xdg_surface_destroyed;
-};
-
 static void be_window_free(be_window_t *be_window){
     // don't need to remove destroy handlers
     free(be_window);
@@ -479,66 +544,96 @@ static be_window_t *be_window_new(backend_t *be,
 }
 
 static void handle_new_surface(struct wl_listener *l, void *data){
-    struct wlr_surface *surface = data;
+    struct wlr_surface *wlr_surface = data;
     backend_t *be = wl_container_of(l, be, wlr_surface_created);
-    be_window_t *be_window = be_window_new(be, surface);
-    // TODO: how to close this surface on errors?
-    if(!be_window) return;
+    be_window_t *be_window = be_window_new(be, wlr_surface);
 
-    logmsg("new surface! %p\n", surface);
+    logmsg("new wlr_surface! %p\n", wlr_surface);
 
-    be->wlr_surface = surface;
+    // we can't close the surface until it becomes an xdg_shell, so let NULL
+    // indicate that the surface is a total loser who deserves to be shutdown
+
+    wlr_surface->data = be_window;
+}
+
+static void handle_xdg_destroyed(struct wl_listener *l, void *data){
+    be_window_t *be_window = wl_container_of(l, be_window, xdg_destroyed);
+    backend_t *be = be_window->be;
+
+    // remove focus if it had focus
+    if(be->focus == be_window){
+        // point keyboard at nothing
+        wlr_seat_keyboard_clear_focus(be->seat);
+        // no more focus
+        be->focus = NULL;
+    }
+}
+
+static void handle_xdg_mapped(struct wl_listener *l, void *data){
+    be_window_t *be_window = wl_container_of(l, be_window, xdg_mapped);
+
+    be_window->mapped = true;
+
+    // call hook into venowm
+    handle_window_new(be_window, &be_window->venowm_data);
+}
+
+static void handle_xdg_unmapped(struct wl_listener *l, void *data){
+    be_window_t *be_window = wl_container_of(l, be_window, xdg_unmapped);
+
+    be_window->mapped = false;
+
+    /* TODO: can this happen any time, or only right before the application
+       closes?  If it can happen frequently, it might not be good to unfocus
+       the window.  This would be like some kind of guard against redraws. If
+       it happens rarely or only before close than this should affect things
+       like if the application is activated and where the keyboard focus is.
+
+       By not adjusting focus or activation here, we are kinda assuming one,
+       but by calling handle_window_destroy we are kinda assuming the other.
+    */
+
+    // call hook into venowm
+    if(be_window->venowm_data){
+        handle_window_destroy(be_window->venowm_data);
+    }
 }
 
 static void handle_xdg_shell_new(struct wl_listener *l, void *data){
-    struct wlr_xdg_surface *surface = data;
+    struct wlr_xdg_surface *xdg_surface = data;
     backend_t *be = wl_container_of(l, be, xdg_shell_new_listener);
-    logmsg("new xdg surface! %p\n", surface);
 
-    be->xdg_surface = surface;
+    logmsg("new xdg_surface! %p\n", xdg_surface);
 
-    wlr_xdg_toplevel_set_activated(surface, true);
+    // get the be_window from the wlr_surface under the xdg_surface
+    be_window_t *be_window = xdg_surface->surface->data;
 
-    // give the newest surface focus
-    struct wlr_keyboard *kbd = wlr_seat_get_keyboard(be->seat);
-    logmsg("wlr_keyboard %p (xdg)\n", kbd);
-    logmsg("wlr_seat_keyboard_notify_enter(%p, %p, %p, %zu, %p)\n",
-            be->seat, surface->surface, kbd->keycodes, kbd->num_keycodes,
-            &kbd->modifiers);
-    //wlr_seat_keyboard_notify_enter(be->seat, surface->surface, kbd->keycodes,
-    //        kbd->num_keycodes, &kbd->modifiers);
+    // if we got here but no be_window was allocated, close the application
+    if(!be_window){
+        wlr_xdg_toplevel_send_close(xdg_surface);
+        return;
+    }
+
+    // store the xdg_surface within the be_window
+    be_window->xdg_surface = xdg_surface;
+
+    // hooks for the xdg_surface
+    be_window->xdg_destroyed.notify = handle_xdg_destroyed;
+    wl_signal_add(&xdg_surface->events.destroy, &be_window->xdg_destroyed);
+
+    be_window->xdg_mapped.notify = handle_xdg_mapped;
+    wl_signal_add(&xdg_surface->events.map, &be_window->xdg_mapped);
+
+    be_window->xdg_unmapped.notify = handle_xdg_unmapped;
+    wl_signal_add(&xdg_surface->events.unmap, &be_window->xdg_unmapped);
+
+    // initial state
+    be_window->mapped = false;
+
+    // don't call into venowm until the surface is mapped
 }
 
 ///// End Backend Window Functions
-
-
-int be_handle_key(backend_t *be, uint32_t mods, uint32_t key,
-                  be_key_handler_t handler, void *data){
-    return 0;
-}
-
-void be_screen_get_geometry(be_screen_t *be_screen,
-                            int32_t *x, int32_t *y, uint32_t *w, uint32_t *h){
-}
-
-void be_unfocus_all(backend_t *be){
-}
-
-void be_window_focus(be_window_t *be_window){
-}
-void be_window_hide(be_window_t *be_window){
-}
-void be_window_show(be_window_t *be_window, be_screen_t *be_screen){
-}
-void be_window_close(be_window_t *be_window){
-}
-void be_window_geometry(be_window_t *be_window,
-                        int32_t x, int32_t y, uint32_t w, uint32_t h){
-}
-
-// request an explicit repaint
-void be_repaint(backend_t *be){
-}
 
 void backend_free(backend_t *be){
     wlr_xcursor_manager_destroy(be->cursor_mgr);
@@ -619,8 +714,11 @@ backend_t *backend_new(void){
     be->seat = wlr_seat_create(be->display, "seat-name");
     if(!be->seat) goto fail_listeners;
 
-    wlr_seat_set_capabilities(be->seat,
-            WL_SEAT_CAPABILITY_KEYBOARD | WL_SEAT_CAPABILITY_POINTER);
+    // prepare input lists
+    wl_list_init(&be->pointers);
+    wl_list_init(&be->keyboards);
+    // no keyboards or pointers yet
+    be->seat_caps = 0;
 
     // add a cursor
     be->cursor = wlr_cursor_create();
@@ -681,4 +779,83 @@ int backend_run(backend_t *be){
 
 void backend_stop(backend_t *be){
     wl_display_terminate(be->display);
+}
+
+
+int be_handle_key(backend_t *be, uint32_t mods, uint32_t key,
+        be_key_handler_t handler, void *data){
+    return 0;
+}
+
+void be_screen_get_geometry(be_screen_t *be_screen, int32_t *x, int32_t *y,
+        uint32_t *w, uint32_t *h){
+    *x = 0;
+    *y = 0;
+    *w = (uint32_t)be_screen->output->width;
+    *h = (uint32_t)be_screen->output->height;
+}
+
+void be_unfocus_all(backend_t *be){
+    if(be->focus != NULL){
+        // deactivate surface
+        wlr_xdg_toplevel_set_activated(be->focus->xdg_surface, false);
+        // point keyboard at nothing
+        wlr_seat_keyboard_clear_focus(be->seat);
+        // no more focus
+        be->focus = NULL;
+    }
+}
+
+void be_window_focus(be_window_t *be_window){
+    backend_t *be = be_window->be;
+    if(be->focus != NULL){
+        // deactivate old surface
+        wlr_xdg_toplevel_set_activated(be->focus->xdg_surface, false);
+    }
+
+    // activate new focus
+    wlr_xdg_toplevel_set_activated(be_window->xdg_surface, true);
+
+    // point keyboard at new surface
+    struct wlr_keyboard *kbd = wlr_seat_get_keyboard(be->seat);
+    if(kbd){
+        wlr_seat_keyboard_notify_enter(be->seat, be_window->wlr_surface,
+                kbd->keycodes, kbd->num_keycodes, &kbd->modifiers);
+    }
+
+    be->focus = be_window;
+}
+
+void be_window_hide(be_window_t *be_window){
+    backend_t *be = be_window->be;
+    if(!be_window->show) return;
+    be_window->show = false;
+    wl_list_remove(&be_window->link);
+    // if the window was focused, unfocus it
+    if(be->focus == be_window){
+        be_unfocus_all(be);
+    }
+}
+
+void be_window_show(be_window_t *be_window, be_screen_t *be_screen){
+    if(be_window->show) return;
+    be_window->show = true;
+    // add this window to that screen
+    wl_list_insert(be_screen->windows.prev, &be_window->link);
+}
+
+void be_window_close(be_window_t *be_window){
+    wlr_xdg_toplevel_send_close(be_window->xdg_surface);
+    // TODO: handle popups as well
+}
+
+void be_window_geometry(be_window_t *be_window, int32_t x, int32_t y,
+        uint32_t w, uint32_t h){
+    uint32_t serial = wlr_xdg_toplevel_set_size(be_window->xdg_surface, w, h);
+    be_window->x = x; be_window->y = y;
+    logmsg("set_size serial is %u\n", serial);
+}
+
+// request an explicit repaint
+void be_repaint(backend_t *be){
 }
