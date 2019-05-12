@@ -61,6 +61,7 @@ struct backend_t {
     struct wlr_xdg_shell *xdg_shell;
     struct wl_listener xdg_shell_new_listener;
     // outputs
+    struct wlr_output_layout *output_layout;
     struct wl_listener new_output_listener;
     struct wl_list be_screens;
     const char *socket;
@@ -90,9 +91,11 @@ static void be_screen_free(be_screen_t *be_screen){
 
 static void handle_output_destroyed(struct wl_listener *l, void *data){
     (void)data;
-    be_screen_t *be_screen = wl_container_of(l, be_screen,
-                                             output_destroyed_listener);
+    be_screen_t *be_screen = wl_container_of(
+        l, be_screen, output_destroyed_listener);
     backend_t *be = be_screen->be;
+
+    wlr_output_layout_remove(be->output_layout, be_screen->output);
 
     be_screen_free(be_screen);
 
@@ -115,7 +118,9 @@ static void handle_frame(struct wl_listener *l, void *data){
 
     // prepare the output for rendering
     int age = -1;
-    wlr_output_make_current(o, &age);
+    if(!wlr_output_make_current(o, &age)){
+        return;
+    }
     wlr_renderer_begin(r, o->width, o->height);
 
     // // render a blue square
@@ -147,6 +152,9 @@ static void handle_frame(struct wl_listener *l, void *data){
         wlr_surface_send_frame_done(surface, &now);
 
     }
+
+    // show software cursor if hardware cursor is not working
+    wlr_output_render_software_cursors(o, NULL);
 
     // done rendering, commit buffer
     wlr_output_swap_buffers(o, NULL, NULL);
@@ -212,8 +220,16 @@ static void handle_new_output(struct wl_listener *l, void *data){
     struct wlr_output *output = data;
     backend_t *be = wl_container_of(l, be, new_output_listener);
 
-    // There's nothing we can do about errors here, so just ignore them.
-    be_screen_new(be, output);
+    be_screen_t *be_screen = be_screen_new(be, output);
+    if(!be_screen) return;
+
+    // how to handle more than one output?
+    wlr_output_layout_add(be->output_layout, output, 0, 0);
+
+    // if this isn't the right scale, load the right scale
+    if(output->scale != 1.0){
+        wlr_xcursor_manager_load(be->cursor_mgr, output->scale);
+    }
 }
 
 ///// End Backend Screen Functions
@@ -330,16 +346,30 @@ static void handle_button(struct wl_listener *l, void *data){
 
 static void handle_motion(struct wl_listener *l, void *data){
     pointer_t *ptr = wl_container_of(l, ptr, motion_listener);
-    struct wlr_event_mouse_motion *event = data;
-    (void)event; (void)ptr;
+    struct wlr_event_pointer_motion *event = data;
+    backend_t *be = ptr->be;
     // logmsg("motion\n");
+
+    wlr_cursor_move(be->cursor, event->device, event->delta_x, event->delta_y);
 }
 
 static void handle_motion_abs(struct wl_listener *l, void *data){
-    pointer_t *ptr = wl_container_of(l, ptr, motion_listener);
-    struct wlr_event_mouse_motion *event = data;
-    (void)event; (void)ptr;
-    // logmsg("motion_abs\n");
+    pointer_t *ptr = wl_container_of(l, ptr, motion_abs_listener);
+    struct wlr_event_pointer_motion_absolute *event = data;
+    backend_t *be = ptr->be;
+
+    wlr_xcursor_manager_set_cursor_image(
+        be->cursor_mgr, "left_ptr", be->cursor);
+
+    double x;
+    double y;
+    wlr_cursor_absolute_to_layout_coords(
+        be->cursor, event->device, event->x, event->y, &x, &y);
+
+    logmsg("motion_abs (%.3f, %.3f) -> (%.3f, %.3f)\n",
+        event->x, event->y, x, y);
+
+    wlr_cursor_warp_closest(be->cursor, event->device, x, y);
 }
 
 pointer_t *pointer_new(backend_t *be, struct wlr_input_device *device){
@@ -350,6 +380,9 @@ pointer_t *pointer_new(backend_t *be, struct wlr_input_device *device){
 
     device->data = ptr;
     ptr->device = device;
+    ptr->be = be;
+
+    // listen to events
 
     ptr->button_listener.notify = handle_button;
     wl_signal_add(&device->pointer->events.button, &ptr->button_listener);
@@ -361,6 +394,9 @@ pointer_t *pointer_new(backend_t *be, struct wlr_input_device *device){
     ptr->motion_abs_listener.notify = handle_motion_abs;
     wl_signal_add(&device->pointer->events.motion_absolute,
                   &ptr->motion_abs_listener);
+
+    // add pointer to cursor
+    wlr_cursor_attach_input_device(be->cursor, device);
 
     return ptr;
 }
@@ -512,8 +548,10 @@ void backend_free(backend_t *be){
     wl_list_remove(&be->compositor_destroyed_listener.link);
     wl_list_remove(&be->xdg_shell_new_listener.link);
     wlr_xdg_shell_destroy(be->xdg_shell);
+    // TODO: fix the order of things here
     // this gets called during compositor_destroyed
     // wlr_compositor_destroy(be->compositor);
+    wlr_output_layout_destroy(be->output_layout);
     wl_list_remove(&be->new_output_listener.link);
     wlr_backend_destroy(be->wlr_backend);
     wl_display_destroy(be->display);
@@ -548,10 +586,13 @@ backend_t *backend_new(void){
     wl_signal_add(&be->wlr_backend->events.new_output,
                   &be->new_output_listener);
 
+    be->output_layout = wlr_output_layout_create();
+    if(!be->output_layout) goto fail_wlr_backend;
+
     // add a compositor
     be->compositor = wlr_compositor_create(be->display,
             wlr_backend_get_renderer(be->wlr_backend));
-    if(!be->compositor) goto fail_wlr_backend;
+    if(!be->compositor) goto fail_output_layout;
 
     // add some interfaces
     be->xdg_shell = wlr_xdg_shell_create(be->display);
@@ -584,12 +625,16 @@ backend_t *backend_new(void){
     // add a cursor
     be->cursor = wlr_cursor_create();
     if(!be->cursor) goto fail_seat;
-    // TODO: wlr_cursor_attach_output_layout()
+    wlr_cursor_attach_output_layout(be->cursor, be->output_layout);
 
     // add a cursor manger
-    be->cursor_mgr = wlr_xcursor_manager_create(NULL, 24);
+    be->cursor_mgr = wlr_xcursor_manager_create("default", 24);
     if(!be->cursor_mgr) goto fail_cursor;
-    wlr_xcursor_manager_load(be->cursor_mgr, 1);
+
+    // load the default scale here
+    wlr_xcursor_manager_load(be->cursor_mgr, 1.0);
+    wlr_xcursor_manager_set_cursor_image(
+        be->cursor_mgr, "left_ptr", be->cursor);
 
     return be;
 
@@ -607,6 +652,8 @@ fail_xdg_shell:
     wlr_xdg_shell_destroy(be->xdg_shell);
 fail_compositor:
     wlr_compositor_destroy(be->compositor);
+fail_output_layout:
+    wlr_output_layout_destroy(be->output_layout);
 fail_wlr_backend:
     wl_list_remove(&be->new_output_listener.link);
     wlr_backend_destroy(be->wlr_backend);
