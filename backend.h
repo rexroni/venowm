@@ -25,13 +25,8 @@ enum {
     MOD_SHIFT = 1 << 3,
 };
 
-typedef void (*be_key_handler_t)(void*,
-                                 const struct timespec*,
-                                 uint32_t,
-                                 void*);
-
 int be_handle_key(backend_t *be, uint32_t mods, uint32_t key,
-                  be_key_handler_t handler, void *data);
+        bool (*func)(backend_t*, void*), void *data);
 
 void be_screen_get_geometry(be_screen_t *be_screen,
                             int32_t *x, int32_t *y, uint32_t *w, uint32_t *h);
