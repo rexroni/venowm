@@ -71,6 +71,49 @@ struct be_window_t {
     struct wl_list link; // be_screen_t.windows
 };
 
+/*
+   KEY BINDING STRATEGY
+
+   X keysyms are all within the 32-bit space with the some unused bits.  We can
+   use this fact to make keybindings fit into a int32-keyed hash map of
+   (X keysym + modifier)s to function/data pairs.
+*/
+
+enum be_modifier_t {
+    // BE_MOD_      = 0x80000000 // skip the sign bit
+    BE_MOD_CTRL  = 0x40000000,
+    BE_MOD_SHIFT = 0x20000000,
+    BE_MOD_ALT   = 0x0F000000,
+    BE_MOD_SUPER = 0x04000000,
+    // BE_MOD_      = 0x02000000
+    // BE_MOD_      = 0x01000000
+    // BE_MOD_      = 0x00400000
+    // BE_MOD_      = 0x00200000
+    // BE_MOD_      = 0x00100000
+};
+
+/*
+   Frankly, this seems like not a great idea but I think it's cool and if it
+   ever goes wrong it's easy enough to correct after the fact.
+*/
+
+
+typedef struct {
+    // func should return "true" to consume the keypress
+    bool (*func)(backend_t*, void*);
+    void *data;
+} keybinding_t;
+
+// custom hashtable mapping (X keysym + modifier)s to function/data pairs
+KHASH_INIT(keymap, int32_t, keybinding_t, true, kh_int_hash_func,
+        kh_int_hash_equal);
+
+typedef struct {
+    khash_t(keymap) *bindings;
+    backend_t *be;
+    struct wl_list link; // backend_t.keymaps
+} keymap_t;
+
 struct backend_t {
     struct wl_display *display;
     struct wl_event_loop *loop;
@@ -96,6 +139,10 @@ struct backend_t {
     struct wlr_xcursor_manager *cursor_mgr;
     struct wl_list pointers; // pointer_t.link
     struct wl_list keyboards; // keyboard_t.link
+
+    // keymaps
+    keymap_t *keymap_top;
+    struct wl_list keymaps; // keymap_t.link
 
     // for interacting with frontend
     be_window_t *focus;
@@ -266,6 +313,69 @@ static void handle_new_output(struct wl_listener *l, void *data){
 
 ///// Input Functions
 
+void keymap_free(keymap_t *keymap){
+    wl_list_remove(&keymap->link);
+    kh_destroy(keymap, keymap->bindings);
+    free(keymap);
+}
+
+keymap_t *keymap_new(backend_t *be){
+    // allocate keymap
+    keymap_t *keymap = malloc(sizeof(*keymap));
+    if(!keymap) return NULL;
+    *keymap = (keymap_t){0};
+
+    // allocate hash table
+    keymap->bindings = kh_init(keymap);
+    if(!keymap->bindings) goto fail;
+
+    // add binding to backend's list
+    keymap->be = be;
+    wl_list_insert(be->keymaps.prev, &keymap->link);
+
+    return keymap;
+
+fail:
+    free(keymap);
+    return NULL;
+}
+
+// returns 0 on success, -1 on error
+int keymap_add_keybinding(keymap_t *keymap, int32_t modded_keysym,
+        bool (*func)(backend_t*, void*), void *data){
+    // build a binding to be copied into the hashtable
+    keybinding_t binding = {
+        .func = func,
+        .data = data,
+    };
+
+    // get index
+    int ret;
+    khiter_t k = kh_put(keymap, keymap->bindings, modded_keysym, &ret);
+    if(ret < 0){
+        return -1;
+    }
+    // write to index
+    kh_value(keymap->bindings, k) = binding;
+
+    return 0;
+}
+
+static const keybinding_t KEYBINDING_NONE = (keybinding_t){0};
+
+// return KEYBINDING_NONE if there is no binding
+keybinding_t keymap_get_keybinding(keymap_t *keymap, int32_t modded_keysym){
+    // get index
+    khiter_t k = kh_get(keymap, keymap->bindings, modded_keysym);
+    // check if value is missing
+    int is_missing = (k == kh_end(keymap->bindings));
+    if(is_missing){
+        return KEYBINDING_NONE;
+    }
+    // return value
+    return kh_value(keymap->bindings, k);
+}
+
 typedef struct {
     backend_t *be;
     struct wlr_input_device *device;
@@ -275,11 +385,65 @@ typedef struct {
     struct wl_list link; // backend_t.keyboards
 } keyboard_t;
 
+// return "true" to consume the keybinding
+static bool keymap_filter(keymap_t *keymap, uint32_t mods,
+        const xkb_keysym_t *keysyms, size_t nkeysyms){
+    for(size_t i = 0; i < nkeysyms; i++){
+        int32_t modded_keysym = keysyms[i];
+        // capture modifiers we care about
+        if(mods & WLR_MODIFIER_SHIFT)   modded_keysym |= BE_MOD_SHIFT;
+        if(mods & WLR_MODIFIER_CTRL)    modded_keysym |= BE_MOD_CTRL;
+        if(mods & WLR_MODIFIER_ALT)     modded_keysym |= BE_MOD_ALT;
+        if(mods & WLR_MODIFIER_MOD3)    modded_keysym |= BE_MOD_SUPER;
+
+        keybinding_t binding = keymap_get_keybinding(keymap, modded_keysym);
+
+        if(!binding.func) continue;
+
+        // call the first keybinding
+        return binding.func(keymap->be, binding.data);
+    }
+    return false;
+}
+
 static void handle_key(struct wl_listener *l, void *data){
     keyboard_t *kbd = wl_container_of(l, kbd, key_listener);
     struct wlr_event_keyboard_key *event = data;
+    struct wlr_keyboard *k = kbd->device->keyboard;
     backend_t *be = kbd->be;
     logmsg("key to %p\n", kbd->be->seat->keyboard_state.focused_surface);
+
+    xkb_keycode_t keycode = event->keycode + 8;
+
+    uint32_t modifiers;
+    const xkb_keysym_t *keysyms;
+    size_t nkeysyms;
+
+    // try and read "translated" keysyms such as "s-bar" for "SUPER+SHIFT+\"
+
+    // get modifiers
+    modifiers = wlr_keyboard_get_modifiers(k);
+    // see which modifiers are already consumed
+    xkb_mod_mask_t consumed = xkb_state_key_get_consumed_mods2(k->xkb_state,
+            keycode, XKB_CONSUMED_MODE_XKB);
+    modifiers &= ~consumed;
+    // get syms
+    nkeysyms = xkb_state_key_get_syms(k->xkb_state, keycode, &keysyms);
+    // check it against the keymap
+    if(keymap_filter(be->keymap_top, modifiers, keysyms, nkeysyms)){
+        return;
+    }
+
+    // try and read "raw" keysyms such as "s-shift+\" for "SUPER+SHIFT+\"
+
+    modifiers = wlr_keyboard_get_modifiers(k);
+    xkb_layout_index_t layout_index = xkb_state_key_get_layout(k->xkb_state,
+            keycode);
+    nkeysyms = xkb_keymap_key_get_syms_by_level(k->keymap, keycode,
+            layout_index, 0, &keysyms);
+    if(keymap_filter(be->keymap_top, modifiers, keysyms, nkeysyms)){
+        return;
+    }
 
     // wlr_seat_set_keyboard() is a noop if this keyboard is already set
     wlr_seat_set_keyboard(be->seat, kbd->device);
@@ -290,10 +454,17 @@ static void handle_key(struct wl_listener *l, void *data){
 }
 
 static void handle_modifier(struct wl_listener *l, void *data){
+    (void)data;
     keyboard_t *kbd = wl_container_of(l, kbd, mod_listener);
-    struct wlr_event_keyboard_modifier *event = data;
-    (void)event; (void)kbd;
+    backend_t *be = kbd->be;
     logmsg("modifier\n");
+
+    // wlr_seat_set_keyboard() is a noop if this keyboard is already set
+    wlr_seat_set_keyboard(be->seat, kbd->device);
+
+    // send modifier through seat
+    wlr_seat_keyboard_notify_modifiers(be->seat,
+            &kbd->device->keyboard->modifiers);
 }
 
 static void keyboard_destroyed(struct wl_listener *l, void *data){
@@ -636,6 +807,14 @@ static void handle_xdg_shell_new(struct wl_listener *l, void *data){
 ///// End Backend Window Functions
 
 void backend_free(backend_t *be){
+    // free all the keymaps
+    {
+        keymap_t *keymap;
+        keymap_t *temp;
+        wl_list_for_each_safe(keymap, temp, &be->keymaps, link){
+            keymap_free(keymap);
+        }
+    }
     wlr_xcursor_manager_destroy(be->cursor_mgr);
     wlr_cursor_destroy(be->cursor);
     wlr_seat_destroy(be->seat);
@@ -734,10 +913,23 @@ backend_t *backend_new(void){
     wlr_xcursor_manager_set_cursor_image(
         be->cursor_mgr, "left_ptr", be->cursor);
 
+    // prepare keymaps
+    wl_list_init(&be->keymaps);
+    be->keymap_top = keymap_new(be);
+    if(!be->keymap_top) goto fail_cursor_mgr;
+
     return be;
 
-// fail_cursor_mgr:
-//     wlr_xcursor_manager_destroy(be->cursor_mgr);
+// fail_keymaps:
+//     {
+//         keymap_t *keymap;
+//         keymap_t *temp;
+//         wl_list_for_each_safe(keymap, temp, &be->keymaps, link){
+//             keymap_free(keymap);
+//         }
+//     }
+fail_cursor_mgr:
+    wlr_xcursor_manager_destroy(be->cursor_mgr);
 fail_cursor:
     wlr_cursor_destroy(be->cursor);
 fail_seat:
@@ -762,6 +954,11 @@ fail_be:
     return NULL;
 }
 
+static bool capture_q(backend_t *be, void *data){
+    printf("q captured!\n");
+    return true;
+}
+
 int backend_run(backend_t *be){
     // start the backend
     int ret = wlr_backend_start(be->wlr_backend);
@@ -772,6 +969,10 @@ int backend_run(backend_t *be){
     // exec("weston-info > wifo");
     exec("weston-terminal");
 
+    if(be_handle_key(be, 0, XKB_KEY_q, capture_q, NULL)){
+        logmsg("failed to handle q\n");
+    }
+
     wl_display_run(be->display);
     // TODO: check error
     return 0;
@@ -781,9 +982,21 @@ void backend_stop(backend_t *be){
     wl_display_terminate(be->display);
 }
 
-
 int be_handle_key(backend_t *be, uint32_t mods, uint32_t key,
-        be_key_handler_t handler, void *data){
+        bool (*func)(backend_t*, void*), void *data){
+    // get the modded_key for the hashtable
+    uint32_t modded_keysym = (uint32_t)key;
+    if(mods & MOD_CTRL)     modded_keysym |= BE_MOD_CTRL;
+    if(mods & MOD_SHIFT)    modded_keysym |= BE_MOD_SHIFT;
+    if(mods & MOD_ALT)      modded_keysym |= BE_MOD_ALT;
+    if(mods & MOD_SUPER)    modded_keysym |= BE_MOD_SUPER;
+
+    int ret;
+    ret = keymap_add_keybinding(be->keymap_top, modded_keysym, func, data);
+    if(ret < 0){
+        return -1;
+    }
+
     return 0;
 }
 
