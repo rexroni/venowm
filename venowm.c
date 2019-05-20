@@ -14,6 +14,7 @@
 #include "screen.h"
 #include "window.h"
 #include "workspace.h"
+#include "bindings.h"
 
 // backend_t, needed for keybindings
 static backend_t *be;
@@ -90,37 +91,7 @@ int main(){
         goto cu_workspaces;
     }
 
-/*
-#define ADD_KEY(xkey, func) \
-    if(be_handle_key(be, MOD_CTRL, \
-                     KEY_ ## xkey, \
-                     &func, be)){ \
-        retval = 6; \
-        goto cu_backend; \
-    }
-#define ADD_KEY_SHIFT(xkey, func) \
-    if(be_handle_key(be, MOD_CTRL | MOD_SHIFT, \
-                     KEY_ ## xkey, \
-                     &func, be)){ \
-        retval = 6; \
-        goto cu_backend; \
-    }
-    ADD_KEY(Q, quit);
-    ADD_KEY(ENTER, exec_vimb);
-    ADD_KEY(BACKSLASH, dohsplit);
-    ADD_KEY(MINUS, dovsplit);
-    ADD_KEY(H, goleft);
-    ADD_KEY(J, godown);
-    ADD_KEY(K, goup);
-    ADD_KEY(L, goright);
-    ADD_KEY(Y, remove_frame);
-    ADD_KEY_SHIFT(H, swapleft);
-    ADD_KEY_SHIFT(J, swapdown);
-    ADD_KEY_SHIFT(K, swapup);
-    ADD_KEY_SHIFT(L, swapright);
-    ADD_KEY(SPACE, next_win);
-    ADD_KEY_SHIFT(SPACE, prev_win);
-#undef ADD_KEY */
+    if(add_bindings(be)) goto cu_workspaces;
 
     backend_run(be);
 
