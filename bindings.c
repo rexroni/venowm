@@ -1,6 +1,7 @@
 #include <unistd.h>
 #include <linux/input.h>
 #include <stdio.h>
+#include <xkbcommon/xkbcommon.h>
 
 #include "bindings.h"
 #include "logmsg.h"
@@ -27,16 +28,13 @@ static void exec(const char *shcmd){
 }
 
 #define DEFINE_KEY_HANDLER(func_name) \
-    void func_name(void *keyboard, \
-                   const struct timespec *timespec, \
-                   uint32_t value, \
-                   void *data){ \
-        (void)keyboard; (void)timespec; (void)value; \
-        backend_t *be = data; \
-        (void)be;
+    bool func_name(backend_t *be, void *data){ \
+        bool retval = true; \
+        (void)data;
 
 #define FINISH_KEY_HANDLER \
         be_repaint(be); \
+        return retval; \
     }
 
 DEFINE_KEY_HANDLER(quit)
@@ -108,36 +106,43 @@ DEFINE_KEY_HANDLER(prev_win)
     workspace_prev_hidden_win_at(g_workspace, g_workspace->focus);
 FINISH_KEY_HANDLER
 
+DEFINE_KEY_HANDLER(close_window)
+    if(g_workspace->focus->win_info){
+        be_window_close(g_workspace->focus->win_info->window->be_window);
+    }
+FINISH_KEY_HANDLER
+
 
 #define ADD_KEY(xkey, func) \
     if(be_handle_key(be, MOD_CTRL, \
-                     KEY_ ## xkey, \
+                     XKB_KEY_ ## xkey, \
                      &func, be)){ \
         goto fail; \
     }
 #define ADD_KEY_SHIFT(xkey, func) \
     if(be_handle_key(be, MOD_CTRL | MOD_SHIFT, \
-                     KEY_ ## xkey, \
+                     XKB_KEY_ ## xkey, \
                      &func, be)){ \
         goto fail; \
     }
 
 int add_bindings(backend_t *be){
-    ADD_KEY(Q, quit);
-    ADD_KEY(ENTER, exec_weston_terminal);
-    ADD_KEY(BACKSLASH, dohsplit);
-    ADD_KEY(MINUS, dovsplit);
-    ADD_KEY(H, goleft);
-    ADD_KEY(J, godown);
-    ADD_KEY(K, goup);
-    ADD_KEY(L, goright);
-    ADD_KEY(Y, remove_frame);
-    ADD_KEY_SHIFT(H, swapleft);
-    ADD_KEY_SHIFT(J, swapdown);
-    ADD_KEY_SHIFT(K, swapup);
-    ADD_KEY_SHIFT(L, swapright);
-    ADD_KEY(SPACE, next_win);
-    ADD_KEY_SHIFT(SPACE, prev_win);
+    ADD_KEY(q, quit);
+    ADD_KEY(Return, exec_weston_terminal);
+    ADD_KEY(backslash, dohsplit);
+    ADD_KEY(minus, dovsplit);
+    ADD_KEY(h, goleft);
+    ADD_KEY(j, godown);
+    ADD_KEY(k, goup);
+    ADD_KEY(l, goright);
+    ADD_KEY(y, remove_frame);
+    ADD_KEY(i, close_window);
+    ADD_KEY_SHIFT(h, swapleft);
+    ADD_KEY_SHIFT(j, swapdown);
+    ADD_KEY_SHIFT(k, swapup);
+    ADD_KEY_SHIFT(l, swapright);
+    ADD_KEY(space, next_win);
+    ADD_KEY_SHIFT(space, prev_win);
     return 0;
 
 fail:

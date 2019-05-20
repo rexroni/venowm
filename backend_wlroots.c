@@ -191,7 +191,7 @@ static void handle_frame(struct wl_listener *l, void *data){
     }
     wlr_renderer_begin(r, o->width, o->height);
 
-    // // render a blue square
+    // render a blue background
     float color[4] = {0.0, 0.0, 0.5, 1.0};
     wlr_renderer_clear(r, color);
 
@@ -210,8 +210,8 @@ static void handle_frame(struct wl_listener *l, void *data){
             continue;
 
         struct wlr_box render_box = {
-            .x = 20,
-            .y = 20,
+            .x = be_window->x,
+            .y = be_window->y,
             .width = srfc->current.width,
             .height = srfc->current.height,
         };
@@ -386,7 +386,7 @@ typedef struct {
 } keyboard_t;
 
 // return "true" to consume the keybinding
-static bool keymap_filter(keymap_t *keymap, uint32_t mods,
+static bool keymap_filter_keysyms(keymap_t *keymap, uint32_t mods,
         const xkb_keysym_t *keysyms, size_t nkeysyms){
     for(size_t i = 0; i < nkeysyms; i++){
         int32_t modded_keysym = keysyms[i];
@@ -406,15 +406,9 @@ static bool keymap_filter(keymap_t *keymap, uint32_t mods,
     return false;
 }
 
-static void handle_key(struct wl_listener *l, void *data){
-    keyboard_t *kbd = wl_container_of(l, kbd, key_listener);
-    struct wlr_event_keyboard_key *event = data;
-    struct wlr_keyboard *k = kbd->device->keyboard;
-    backend_t *be = kbd->be;
-    logmsg("key to %p\n", kbd->be->seat->keyboard_state.focused_surface);
-
-    xkb_keycode_t keycode = event->keycode + 8;
-
+// return "true" to consume the keybinding
+static bool keymap_filter_keycode(backend_t *be, struct wlr_keyboard *k,
+        xkb_keycode_t keycode){
     uint32_t modifiers;
     const xkb_keysym_t *keysyms;
     size_t nkeysyms;
@@ -430,8 +424,8 @@ static void handle_key(struct wl_listener *l, void *data){
     // get syms
     nkeysyms = xkb_state_key_get_syms(k->xkb_state, keycode, &keysyms);
     // check it against the keymap
-    if(keymap_filter(be->keymap_top, modifiers, keysyms, nkeysyms)){
-        return;
+    if(keymap_filter_keysyms(be->keymap_top, modifiers, keysyms, nkeysyms)){
+        return true;
     }
 
     // try and read "raw" keysyms such as "s-shift+\" for "SUPER+SHIFT+\"
@@ -441,8 +435,26 @@ static void handle_key(struct wl_listener *l, void *data){
             keycode);
     nkeysyms = xkb_keymap_key_get_syms_by_level(k->keymap, keycode,
             layout_index, 0, &keysyms);
-    if(keymap_filter(be->keymap_top, modifiers, keysyms, nkeysyms)){
-        return;
+    if(keymap_filter_keysyms(be->keymap_top, modifiers, keysyms, nkeysyms)){
+        return true;
+    }
+
+    return false;
+}
+
+
+static void handle_key(struct wl_listener *l, void *data){
+    keyboard_t *kbd = wl_container_of(l, kbd, key_listener);
+    struct wlr_event_keyboard_key *event = data;
+    struct wlr_keyboard *k = kbd->device->keyboard;
+    backend_t *be = kbd->be;
+
+    xkb_keycode_t keycode = event->keycode + 8;
+
+    if(event->state == WLR_KEY_PRESSED){
+        if(keymap_filter_keycode(be, k, keycode)){
+            return;
+        }
     }
 
     // wlr_seat_set_keyboard() is a noop if this keyboard is already set
@@ -457,7 +469,6 @@ static void handle_modifier(struct wl_listener *l, void *data){
     (void)data;
     keyboard_t *kbd = wl_container_of(l, kbd, mod_listener);
     backend_t *be = kbd->be;
-    logmsg("modifier\n");
 
     // wlr_seat_set_keyboard() is a noop if this keyboard is already set
     wlr_seat_set_keyboard(be->seat, kbd->device);
@@ -590,8 +601,8 @@ static void handle_motion_abs(struct wl_listener *l, void *data){
     wlr_cursor_absolute_to_layout_coords(
         be->cursor, event->device, event->x, event->y, &x, &y);
 
-    logmsg("motion_abs (%.3f, %.3f) -> (%.3f, %.3f)\n",
-        event->x, event->y, x, y);
+    // logmsg("motion_abs (%.3f, %.3f) -> (%.3f, %.3f)\n",
+    //     event->x, event->y, x, y);
 
     wlr_cursor_warp_closest(be->cursor, event->device, x, y);
 }
