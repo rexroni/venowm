@@ -766,6 +766,9 @@ static void handle_xdg_mapped(struct wl_listener *l, void *data){
 
     logmsg("xdg mapped\n");
 
+    // set XDG to be fully tiled
+    wlr_xdg_toplevel_set_tiled(be_window->xdg_surface, 15);
+
     // call hook into venowm
     handle_window_new(be_window, &be_window->venowm_data);
 }
