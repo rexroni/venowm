@@ -14,6 +14,8 @@
 #include <wlr/types/wlr_keyboard.h>
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_xcursor_manager.h>
+#include <wlr/types/wlr_xdg_decoration_v1.h>
+#include <wlr/types/wlr_server_decoration.h>
 
 #include <xkbcommon/xkbcommon.h>
 
@@ -124,9 +126,15 @@ struct backend_t {
     struct wlr_compositor *compositor;
     struct wl_listener wlr_surface_created;
     struct wl_listener compositor_destroyed_listener;
-    // shell interfaces
+    // xdg shell
     struct wlr_xdg_shell *xdg_shell;
     struct wl_listener xdg_shell_new_listener;
+    // xdg decorations
+    struct wlr_xdg_decoration_manager_v1 *decoration_mgr;
+    struct wl_listener decoration_new;
+    struct wl_listener decoration_mgr_destroy;
+    // kde decorations
+    struct wlr_server_decoration_manager *server_dec_mgr;
     // outputs
     struct wlr_output_layout *output_layout;
     struct wl_listener new_output_listener;
@@ -756,6 +764,8 @@ static void handle_xdg_mapped(struct wl_listener *l, void *data){
 
     be_window->mapped = true;
 
+    logmsg("xdg mapped\n");
+
     // call hook into venowm
     handle_window_new(be_window, &be_window->venowm_data);
 }
@@ -764,6 +774,8 @@ static void handle_xdg_unmapped(struct wl_listener *l, void *data){
     be_window_t *be_window = wl_container_of(l, be_window, xdg_unmapped);
 
     be_window->mapped = false;
+
+    logmsg("xdg unmapped\n");
 
     /* TODO: can this happen any time, or only right before the application
        closes?  If it can happen frequently, it might not be good to unfocus
@@ -781,6 +793,7 @@ static void handle_xdg_unmapped(struct wl_listener *l, void *data){
     }
 }
 
+// We have an xdg surface but it doesn't necessarily have a role yet.
 static void handle_xdg_shell_new(struct wl_listener *l, void *data){
     struct wlr_xdg_surface *xdg_surface = data;
     backend_t *be = wl_container_of(l, be, xdg_shell_new_listener);
@@ -792,8 +805,11 @@ static void handle_xdg_shell_new(struct wl_listener *l, void *data){
 
     // if we got here but no be_window was allocated, close the application
     if(!be_window){
-        wlr_xdg_toplevel_send_close(xdg_surface);
-        return;
+        //// Wait, this isn't valid because the surface has no role yet.
+        // wlr_xdg_toplevel_send_close(xdg_surface);
+        // return;
+        // TODO: shit, we don't really have a way to handle this.
+        exit(101);
     }
 
     // store the xdg_surface within the be_window
@@ -817,6 +833,35 @@ static void handle_xdg_shell_new(struct wl_listener *l, void *data){
 
 ///// End Backend Window Functions
 
+
+///// Decoration Functions
+
+void handle_decoration_new(struct wl_listener *l, void *data){
+    backend_t *be = wl_container_of(l, be, decoration_new);
+    struct wlr_xdg_toplevel_decoration_v1 *dec = data;
+
+    /* TODO: do we need to actually handle requests from the decoration? Or can
+             we just tell the decoration to use server-side decorations and
+             call it good?  Let's give that a shot. */
+    logmsg("new decoration!!!!!!!!!!!!!!!!!!!!!!!!\n");
+
+    // Fire and forget.  Probably the return value means something.
+    uint32_t ret = wlr_xdg_toplevel_decoration_v1_set_mode(dec,
+            WLR_XDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE);
+    (void)ret;
+}
+
+void handle_decoration_mgr_destroy(struct wl_listener *l, void *data){
+    (void)data;
+    backend_t *be = wl_container_of(l, be, decoration_mgr_destroy);
+    /* TODO: should destroy() get called here or in backend free?  Not both.
+             Actually, I would consider shutting down the whole compositor if
+             this died a valid plan.  It shouldn't die. */
+    (void)be;
+}
+
+///// End Decoration Functions
+
 void backend_free(backend_t *be){
     // free all the keymaps
     {
@@ -831,6 +876,10 @@ void backend_free(backend_t *be){
     wlr_seat_destroy(be->seat);
     wl_list_remove(&be->wlr_surface_created.link);
     wl_list_remove(&be->compositor_destroyed_listener.link);
+    wlr_server_decoration_manager_destroy(be->server_dec_mgr);
+    wl_list_remove(&be->decoration_new.link);
+    wl_list_remove(&be->decoration_mgr_destroy.link);
+    wlr_xdg_decoration_manager_v1_destroy(be->decoration_mgr);
     wl_list_remove(&be->xdg_shell_new_listener.link);
     wlr_xdg_shell_destroy(be->xdg_shell);
     // TODO: fix the order of things here
@@ -879,18 +928,35 @@ backend_t *backend_new(void){
             wlr_backend_get_renderer(be->wlr_backend));
     if(!be->compositor) goto fail_output_layout;
 
-    // add some interfaces
+    // xdg_shell interface
     be->xdg_shell = wlr_xdg_shell_create(be->display);
     if(!be->xdg_shell) goto fail_compositor;
     be->xdg_shell_new_listener.notify = handle_xdg_shell_new;
     wl_signal_add(&be->xdg_shell->events.new_surface,
                   &be->xdg_shell_new_listener);
 
+    // shared memory stuff
     wl_display_init_shm(be->display);
+
+    // xdg_decoration stuff
+    be->decoration_mgr = wlr_xdg_decoration_manager_v1_create(be->display);
+    if(!be->decoration_mgr) goto fail_xdg_shell;
+    be->decoration_new.notify = handle_decoration_new;
+    wl_signal_add(&be->decoration_mgr->events.new_toplevel_decoration,
+                  &be->decoration_new);
+    be->decoration_mgr_destroy.notify = handle_decoration_mgr_destroy;
+    wl_signal_add(&be->decoration_mgr->events.destroy,
+                  &be->decoration_mgr_destroy);
+
+    // kde server decoration stuff
+    be->server_dec_mgr = wlr_server_decoration_manager_create(be->display);
+    if(!be->server_dec_mgr) goto fail_decoration_mgr;
+    wlr_server_decoration_manager_set_default_mode(
+            be->server_dec_mgr, WLR_SERVER_DECORATION_MANAGER_MODE_SERVER);
 
     // become a proper wayland server
     be->socket = wl_display_add_socket_auto(be->display);
-    if(!be->socket) goto fail_xdg_shell;
+    if(!be->socket) goto fail_server_dec_mgr;
 
     // add some listeners
     be->wlr_surface_created.notify = handle_new_surface;
@@ -948,6 +1014,12 @@ fail_seat:
 fail_listeners:
     wl_list_remove(&be->wlr_surface_created.link);
     wl_list_remove(&be->compositor_destroyed_listener.link);
+fail_server_dec_mgr:
+    wlr_server_decoration_manager_destroy(be->server_dec_mgr);
+fail_decoration_mgr:
+    wl_list_remove(&be->decoration_new.link);
+    wl_list_remove(&be->decoration_mgr_destroy.link);
+    wlr_xdg_decoration_manager_v1_destroy(be->decoration_mgr);
 fail_xdg_shell:
     wl_list_remove(&be->xdg_shell_new_listener.link);
     wlr_xdg_shell_destroy(be->xdg_shell);
@@ -1048,6 +1120,7 @@ void be_window_focus(be_window_t *be_window){
     }
 
     be->focus = be_window;
+    logmsg("new focus window's role: %d\n", be_window->xdg_surface->role);
 }
 
 void be_window_hide(be_window_t *be_window){
