@@ -193,8 +193,7 @@ static void handle_frame(struct wl_listener *l, void *data){
     struct wlr_renderer *r = wlr_backend_get_renderer(o->backend);
 
     // prepare the output for rendering
-    int age = -1;
-    if(!wlr_output_make_current(o, &age)){
+    if(!wlr_output_attach_render(o, NULL)){
         return;
     }
     wlr_renderer_begin(r, o->width, o->height);
@@ -237,9 +236,12 @@ static void handle_frame(struct wl_listener *l, void *data){
     // show software cursor if hardware cursor is not working
     wlr_output_render_software_cursors(o, NULL);
 
+    // TODO: set damage via wlr_output_set_damage()
+    // (there don't seem to be any examples)
+
     // done rendering, commit buffer
-    wlr_output_swap_buffers(o, NULL, NULL);
     wlr_renderer_end(r);
+    wlr_output_commit(o);
 }
 
 static be_screen_t *be_screen_new(backend_t *be, struct wlr_output *output){
