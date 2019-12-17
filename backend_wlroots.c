@@ -22,6 +22,9 @@
 #include "backend.h"
 #include "venowm.h"
 #include "logmsg.h"
+#include "venowm_control.h"
+
+#include "venowm-shell-protocol.c"
 
 static void exec(const char *shcmd){
     logmsg("called exec\n");
@@ -135,6 +138,8 @@ struct backend_t {
     struct wl_listener decoration_mgr_destroy;
     // kde decorations
     struct wlr_server_decoration_manager *server_dec_mgr;
+    // venowm control stuff
+    venowm_control_t *vc;
     // outputs
     struct wlr_output_layout *output_layout;
     struct wl_listener new_output_listener;
@@ -867,6 +872,7 @@ void handle_decoration_mgr_destroy(struct wl_listener *l, void *data){
 
 ///// End Decoration Functions
 
+
 void backend_free(backend_t *be){
     // free all the keymaps
     {
@@ -881,6 +887,7 @@ void backend_free(backend_t *be){
     wlr_seat_destroy(be->seat);
     wl_list_remove(&be->wlr_surface_created.link);
     wl_list_remove(&be->compositor_destroyed_listener.link);
+    venowm_control_free(be->vc);
     wlr_server_decoration_manager_destroy(be->server_dec_mgr);
     wl_list_remove(&be->decoration_new.link);
     wl_list_remove(&be->decoration_mgr_destroy.link);
@@ -959,9 +966,13 @@ backend_t *backend_new(void){
     wlr_server_decoration_manager_set_default_mode(
             be->server_dec_mgr, WLR_SERVER_DECORATION_MANAGER_MODE_SERVER);
 
+    // venowm_control interface
+    be->vc = venowm_control_new(be, be->display);
+    if(!be->vc) goto fail_server_dec_mgr;
+
     // become a proper wayland server
     be->socket = wl_display_add_socket_auto(be->display);
-    if(!be->socket) goto fail_server_dec_mgr;
+    if(!be->socket) goto fail_venowm_control;
 
     // add some listeners
     be->wlr_surface_created.notify = handle_new_surface;
@@ -1019,6 +1030,8 @@ fail_seat:
 fail_listeners:
     wl_list_remove(&be->wlr_surface_created.link);
     wl_list_remove(&be->compositor_destroyed_listener.link);
+fail_venowm_control:
+    venowm_control_free(be->vc);
 fail_server_dec_mgr:
     wlr_server_decoration_manager_destroy(be->server_dec_mgr);
 fail_decoration_mgr:
