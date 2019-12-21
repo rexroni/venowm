@@ -70,17 +70,5 @@ protocols: protocol/xdg-shell-protocol.h \
            protocol/venowm-shell-client-protocol.h \
            protocol/venowm-shell-protocol.c \
 
-protocol/xdg-decoration-unstable-v1-private.c: $(XDG_DECORATION_XML)
-	mkdir -p protocol
-	wayland-scanner private-code $< $@
-
-protocol/xdg-decoration-unstable-v1-server.h: $(XDG_DECORATION_XML)
-	mkdir -p protocol
-	wayland-scanner server-header $< $@
-
-protocols: protocol/xdg-decoration-unstable-v1-server.h \
-           protocol/xdg-decoration-unstable-v1-private.c
-
-
 clean:
 	rm -f *.o venowm test_split logmsg -r protocol
