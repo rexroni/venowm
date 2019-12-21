@@ -1,4 +1,5 @@
 #include <wayland-server.h>
+#include <wayland-util.h>
 
 #include "backend.h"
 

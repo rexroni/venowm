@@ -29,4 +29,7 @@ int venowm_focus_down(struct venowm *v, bool flush);
 int venowm_focus_left(struct venowm *v, bool flush);
 int venowm_focus_right(struct venowm *v, bool flush);
 
+/* tell venowm to launch a command */
+int venowm_launch(struct venowm *v, int argc, char **argv);
+
 #endif // LIBVENOWM_H

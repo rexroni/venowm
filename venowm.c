@@ -140,6 +140,30 @@ int command_main(libvenowm_func_t func){
     return 0;
 }
 
+int launch_main(int argc, char **argv){
+    struct venowm *v = venowm_create();
+    if(!v){
+        fprintf(stderr, "failed to create venowm client\n");
+        return 1;
+    }
+
+    int ret = venowm_connect(v, NULL);
+    if(ret < 0){
+        fprintf(stderr, "%s\n", venowm_errmsg(v));
+        return 1;
+    }
+
+    ret = venowm_launch(v, argc, argv);
+    if(ret < 0){
+        fprintf(stderr, "%s\n", venowm_errmsg(v));
+        return 1;
+    }
+
+    venowm_destroy(v);
+
+    return 0;
+}
+
 int main(int argc, char **argv){
     if(argc < 2){
         return compositor_main();
@@ -156,12 +180,18 @@ int main(int argc, char **argv){
     if(strcmp(argv[1], "focus-right") == 0){
         return command_main(venowm_focus_right);
     }
+    if(strcmp(argv[1], "launch") == 0){
+        if(argc > 2){
+            return launch_main(argc - 2, &argv[2]);
+        }
+    }
     fprintf(stderr,
         "usage: venowm\n"
         "usage: venowm focus_up\n"
         "usage: venowm focus_down\n"
         "usage: venowm focus_left\n"
         "usage: venowm focus_right\n"
+        "usage: venowm launch ...\n"
     );
     return 1;
 }

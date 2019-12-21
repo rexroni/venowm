@@ -44,5 +44,19 @@
     <request name="focus_right">
     </request>
 
+    <request name="launch">
+      <description summary="tell venowm to launch a command">
+        Pass venowm arguments for a call to execvp(3).  The format of the
+        arguments is a single char array with all of the strings of argv
+        concatenated together (including the null bytes), and another array
+        of uint32_t's of the length of each string in argv (including the null
+        bytes).
+      </description>
+      <arg name="argv" type="array"
+        summary="char array of concatenated argv strings (with \0)"/>
+      <arg name="argvlen" type="array"
+        summary="uint32_t array of length of argv strings (with \0)"/>
+    </request>
+
   </interface>
 </protocol>
