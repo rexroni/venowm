@@ -1055,11 +1055,6 @@ fail_be:
     return NULL;
 }
 
-static bool capture_q(backend_t *be, void *data){
-    printf("q captured!\n");
-    return true;
-}
-
 int backend_run(backend_t *be){
     // start the backend
     int ret = wlr_backend_start(be->wlr_backend);
@@ -1069,10 +1064,6 @@ int backend_run(backend_t *be){
 
     // exec("weston-info > wifo");
     exec("weston-terminal");
-
-    if(be_handle_key(be, 0, XKB_KEY_q, capture_q, NULL)){
-        logmsg("failed to handle q\n");
-    }
 
     wl_display_run(be->display);
     // TODO: check error
