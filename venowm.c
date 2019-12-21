@@ -15,6 +15,7 @@
 #include "window.h"
 #include "workspace.h"
 #include "bindings.h"
+#include "libvenowm.h"
 
 // backend_t, needed for keybindings
 static backend_t *be;
@@ -47,7 +48,7 @@ void sigchld_handler(int signum){
     // TODO: tell the user if something went wrong
 }
 
-int main(){
+int compositor_main(){
     int retval = 0;
     int err;
 
@@ -110,4 +111,57 @@ cu_backend:
     backend_free(be);
     logmsg("exiting from main: %d\n", retval);
     return retval;
+}
+
+// function pointer from libvenowm_t
+typedef int (*libvenowm_func_t)(struct venowm*, bool);
+
+int command_main(libvenowm_func_t func){
+    struct venowm *v = venowm_create();
+    if(!v){
+        fprintf(stderr, "failed to create venowm client\n");
+        return 1;
+    }
+
+    int ret = venowm_connect(v, NULL);
+    if(ret < 0){
+        fprintf(stderr, "%s\n", venowm_errmsg(v));
+        return 1;
+    }
+
+    ret = func(v, true);
+    if(ret < 0){
+        fprintf(stderr, "%s\n", venowm_errmsg(v));
+        return 1;
+    }
+
+    venowm_destroy(v);
+
+    return 0;
+}
+
+int main(int argc, char **argv){
+    if(argc < 2){
+        return compositor_main();
+    }
+    if(strcmp(argv[1], "focus-up") == 0){
+        return command_main(venowm_focus_up);
+    }
+    if(strcmp(argv[1], "focus-down") == 0){
+        return command_main(venowm_focus_down);
+    }
+    if(strcmp(argv[1], "focus-left") == 0){
+        return command_main(venowm_focus_left);
+    }
+    if(strcmp(argv[1], "focus-right") == 0){
+        return command_main(venowm_focus_right);
+    }
+    fprintf(stderr,
+        "usage: venowm\n"
+        "usage: venowm focus_up\n"
+        "usage: venowm focus_down\n"
+        "usage: venowm focus_left\n"
+        "usage: venowm focus_right\n"
+    );
+    return 1;
 }

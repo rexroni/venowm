@@ -27,6 +27,9 @@ backend_wlroots.o: protocol/xdg-shell-protocol.h \
 venowm_control.o: protocol/venowm-shell-protocol.h \
                   protocol/venowm-shell-protocol.c
 
+libvenowm.o: protocol/venowm-shell-client-protocol.h \
+             protocol/venowm-shell-protocol.c
+
 venowm:split.o \
        screen.o \
        workspace.o \
@@ -34,7 +37,8 @@ venowm:split.o \
        logmsg.o \
        bindings.o \
        venowm_control.o \
-       backend_wlroots.o
+       backend_wlroots.o \
+       libvenowm.o
 
 protocol/xdg-shell-protocol.h: $(XDG_SHELL_XML)
 	mkdir -p protocol
