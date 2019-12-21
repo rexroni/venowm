@@ -10,7 +10,7 @@ Pronounced like "venom", and definitely *not* pronounced like "vee-no window man
 
 - Native (as in C-code-not-Perl-script) support for workspaces, inspired by the [jcs/ratpoison](https://github.com/jcs/ratpoison) fork.
 
-- Support hot-plugging of displays.  It is embarrassing when you have to explain to your Mac-using coworkers that you need to close all of your windows every time you unplug a display from your laptop.
+- Support hot-plugging of displays.  It is embarrassing when you have to explain to your Mac-using coworkers that you need to close all of your windows and restart your window manager every time you unplug a display from your laptop.
 
 - (Long-term) Eventually support Nvidia proprietary driver.  Because work laptops running CUDA deserve a great window manager, too.
 
@@ -22,21 +22,28 @@ Pronounced like "venom", and definitely *not* pronounced like "vee-no window man
 
 1. Install dependencies:
 
-    - `weston`
+    - `weston` (for the wetson-terminal and weston-info)
 
-    - `libweston`, possibly included in the `weston` package or something
+    - `wlroots >= 0.6.0`
 
-    - `libwayland` and `libwayland-server`.
+    - `libwayland` and `libwayland-server`
+
+    - `libxkbcommon`
 
     - Possibly some other packages.
 
 1. Run `make`.
 
-1. Copy or link `venowm_shell_plugin.so` into `/usr/lib/weston`.
+1. Execute with `./venowm`.
 
-1. Execute with `./weston --shell=venowm_shell_plugin.so`.
-
-1. Launch more windows (currently hard-coded to launch `weston-terminal`) with "ctrl-enter".  Split the screen with "ctrl-minus" or "control-backslash".  Move between frames with "ctrl-h/j/k/l".  Drag windows around with "ctrl-shift-h/j/k/l".  Close frames with "ctrl-y".  Show hidden windows with "ctrl-space".  Press "ctrl-q" to quit.
+1. Play around in your shiny new venowm environment:
+    - Launch more windows with "ctrl-enter" (currently hard-coded to launch `weston-terminal`)
+    - Split the screen with "ctrl-minus" or "control-backslash".
+    - Move between frames with "ctrl-h/j/k/l".
+    - Drag windows around with "ctrl-shift-h/j/k/l".
+    - Close frames with "ctrl-y".
+    - Cycle through hidden windows with "ctrl-space".
+    - Press "ctrl-q" to quit.
 
 ## License
 

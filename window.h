@@ -1,8 +1,6 @@
 #ifndef WINDOW_H
 #define WINDOW_H
 
-#include <swc.h>
-
 #include "venowm.h"
 
 // the returned window starts with 0 refs

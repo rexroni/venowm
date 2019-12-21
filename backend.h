@@ -4,9 +4,6 @@
 #include <stdint.h>
 #include <time.h>
 
-/* don't like the #define strategy, there is no way to say that a
-   struct of one name just refers to a struct of another name. */
-
 typedef struct be_screen_t be_screen_t;
 typedef struct be_window_t be_window_t;
 
@@ -42,7 +39,7 @@ void be_window_geometry(be_window_t *be_window,
 // request an explicit repaint
 void be_repaint(backend_t *be);
 
-//// CALLBACKS
+//// CALLBACKS TO REST OF THE SYSTEM
 // (not defined in backend.c and must be defined elsewhere)
 
 /* handle_*_new fuctions set a void* which gets returned by other callbacks,

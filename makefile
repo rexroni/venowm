@@ -21,8 +21,8 @@ all: venowm test_split
 
 test_split: split.o logmsg.o
 
-backend_wlroots.o: protocol/xdg-shell-protocol.h \
-                   protocol/xdg-shell-protocol.c
+backend.o: protocol/xdg-shell-protocol.h \
+           protocol/xdg-shell-protocol.c
 
 venowm_control.o: protocol/venowm-shell-protocol.h \
                   protocol/venowm-shell-protocol.c
@@ -37,7 +37,7 @@ venowm:split.o \
        logmsg.o \
        bindings.o \
        venowm_control.o \
-       backend_wlroots.o \
+       backend.o \
        libvenowm.o
 
 protocol/xdg-shell-protocol.h: $(XDG_SHELL_XML)
